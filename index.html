@@ -1,0 +1,2537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STS — Scheduling Team System</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+:root{
+  --bg:#07090f;--surface:#0e1118;--surface2:#141820;--surface3:#1a1f2e;
+  --border:#1f2638;--border2:#2a3248;
+  --text:#dde2f0;--text-muted:#6b7599;--text-dim:#3a4260;
+  --accent:#3b82f6;--accent-dim:#0f2044;--accent-hover:#5b9bf8;
+  --green:#22c55e;--green-dim:#052010;--green2:#16a34a;
+  --yellow:#eab308;--yellow-dim:#1c1500;
+  --red:#ef4444;--red-dim:#1a0404;
+  --orange:#f97316;--orange-dim:#1a0800;
+  --purple:#a855f7;--purple-dim:#1a0530;
+  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
+  --radius:8px;--radius-sm:5px;
+  --shadow:0 8px 32px rgba(0,0,0,.6);
+  --shadow-sm:0 2px 8px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;font-family:var(--sans);background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;}
+a{color:var(--accent);text-decoration:none;}
+a:hover{text-decoration:underline;}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:6px;height:6px;}
+::-webkit-scrollbar-track{background:var(--surface);}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+
+/* ── LAYOUT ── */
+#app{display:flex;flex-direction:column;height:100%;}
+.page{display:none;flex:1;overflow:auto;}
+.page.active{display:flex;flex-direction:column;}
+
+/* ── HEADER ── */
+#main-header{background:var(--surface);border-bottom:1px solid var(--border);height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex-shrink:0;position:sticky;top:0;z-index:100;}
+.hdr-left{display:flex;align-items:center;gap:16px;}
+.logo{font-family:var(--mono);font-size:14px;font-weight:500;color:var(--accent);letter-spacing:.08em;}
+.logo-sep{color:var(--text-dim);}
+.nav-tabs{display:flex;align-items:center;gap:2px;}
+.nav-tab{font-size:12px;font-weight:500;padding:5px 12px;border-radius:var(--radius-sm);border:none;background:transparent;color:var(--text-muted);cursor:pointer;transition:all .15s;letter-spacing:.02em;}
+.nav-tab:hover{background:var(--surface3);color:var(--text);}
+.nav-tab.active{background:var(--accent-dim);color:var(--accent);}
+.hdr-right{display:flex;align-items:center;gap:12px;}
+.user-chip{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);}
+.user-avatar{width:28px;height:28px;border-radius:50%;background:var(--accent-dim);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:500;}
+.role-pill{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:20px;background:var(--surface3);border:1px solid var(--border2);color:var(--text-muted);letter-spacing:.04em;}
+
+/* ── BUTTONS ── */
+.btn{font-family:var(--sans);font-size:13px;font-weight:500;padding:7px 16px;border-radius:var(--radius-sm);border:none;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px;letter-spacing:.01em;}
+.btn:disabled{opacity:.35;cursor:not-allowed;}
+.btn-primary{background:var(--accent);color:#fff;}
+.btn-primary:hover:not(:disabled){background:var(--accent-hover);}
+.btn-ghost{background:transparent;color:var(--text-muted);border:1px solid var(--border2);}
+.btn-ghost:hover:not(:disabled){background:var(--surface3);color:var(--text);border-color:var(--border2);}
+.btn-success{background:var(--green2);color:#fff;}
+.btn-success:hover:not(:disabled){background:var(--green);}
+.btn-danger{background:transparent;color:var(--red);border:1px solid var(--red-dim);}
+.btn-danger:hover:not(:disabled){background:var(--red-dim);}
+.btn-sm{padding:5px 11px;font-size:12px;}
+.btn-xs{padding:3px 8px;font-size:11px;}
+.btn-icon{padding:6px;border-radius:var(--radius-sm);}
+
+/* ── INPUTS ── */
+.input{width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-family:var(--sans);font-size:14px;padding:9px 12px;outline:none;transition:border-color .15s;}
+.input:focus{border-color:var(--accent);}
+.input::placeholder{color:var(--text-dim);}
+.select{width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-family:var(--sans);font-size:13px;padding:8px 10px;outline:none;cursor:pointer;}
+.select:focus{border-color:var(--accent);}
+label.field-label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin-bottom:5px;}
+
+/* ── TOTALS BAR ── */
+#totals-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:6px 24px;display:none;align-items:center;gap:24px;flex-shrink:0;flex-wrap:wrap;}
+.tc{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;}
+.tc-label{color:var(--text-dim);text-transform:uppercase;letter-spacing:.07em;font-size:10px;}
+.tc-val{font-weight:500;}
+.tc-green{color:var(--green);}
+.tc-yellow{color:var(--yellow);}
+.tc-red{color:var(--red);}
+.tc-div{width:1px;height:16px;background:var(--border);}
+
+/* ── SCHEDULE PAGE ── */
+#page-schedule{padding:20px 24px;gap:16px;}
+.paste-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
+.panel-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:12px;}
+#raw-input{width:100%;height:130px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-family:var(--mono);font-size:11px;padding:10px;resize:vertical;outline:none;transition:border-color .15s;}
+#raw-input:focus{border-color:var(--accent);}
+#raw-input::placeholder{color:var(--text-dim);}
+.paste-row{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;}
+#parse-error{color:var(--red);font-size:11px;font-family:var(--mono);display:none;margin-top:6px;}
+
+/* SCHEDULE META */
+#sched-meta{display:none;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+.sched-meta-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.meta-chip{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:var(--radius-sm);background:var(--surface2);border:1px solid var(--border);color:var(--text-muted);}
+.sched-actions{display:flex;gap:6px;}
+
+/* SKU CARDS */
+#schedule-list{display:flex;flex-direction:column;gap:8px;}
+.sku-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:grab;user-select:none;transition:border-color .15s,box-shadow .15s;}
+.sku-card:active{cursor:grabbing;}
+.sku-card.dragging{opacity:.4;border-color:var(--accent);}
+.sku-card.drag-over{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-dim);}
+.sku-card.must-ship{border-left:3px solid var(--red);}
+.sku-card.is-warranty{border-left:3px solid var(--purple);}
+.sku-card.is-replacement{border-left:3px solid var(--orange);}
+.sku-card.must-ship.is-warranty,.sku-card.must-ship.is-replacement{border-left:3px solid var(--red);}
+
+/* Compact horizontal card layout */
+.card-row{display:flex;align-items:center;padding:8px 14px;gap:12px;flex-wrap:wrap;}
+.card-drag{color:var(--text-dim);font-size:14px;cursor:grab;flex-shrink:0;}
+.card-sku{min-width:0;flex:0 0 auto;}
+.card-sku-name{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--text);letter-spacing:.02em;}
+.card-sku-order{font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:1px;}
+.card-badges{display:flex;align-items:center;gap:4px;flex-wrap:wrap;flex:1;min-width:0;}
+.card-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto;}
+.takt-pill{font-family:var(--mono);font-size:11px;color:var(--green);background:var(--green-dim);padding:3px 8px;border-radius:var(--radius-sm);white-space:nowrap;border:1px solid var(--green2);}
+.qty-pill{font-family:var(--mono);font-size:11px;color:var(--text);background:var(--surface2);padding:3px 8px;border-radius:var(--radius-sm);white-space:nowrap;border:1px solid var(--border);}
+.due-pill{font-size:10px;color:var(--text-muted);font-family:var(--mono);white-space:nowrap;}
+.due-pill.soon{color:var(--yellow);}
+.due-pill.overdue{color:var(--red);}
+
+.card-sku-desc{
+  font-size:10px;
+  color:var(--text-muted);
+  margin-top:2px;
+  max-width:520px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* MATERIALS ROW — compact horizontal */
+.card-mats{display:flex;align-items:center;gap:8px;padding:6px 14px 8px;border-top:1px solid var(--border);flex-wrap:wrap;}
+.mat-group{display:flex;align-items:center;gap:5px;}
+.mat-group label{font-size:10px;color:var(--text-dim);white-space:nowrap;font-weight:500;text-transform:uppercase;letter-spacing:.05em;}
+.mat-sel{font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);padding:3px 6px;cursor:pointer;outline:none;max-width:100px;}
+.mat-sel:focus{border-color:var(--accent);}
+.mat-sel.has-need{border-color:var(--yellow);color:var(--yellow);background:var(--yellow-dim);}
+.mat-div{width:1px;height:16px;background:var(--border);flex-shrink:0;}
+.tog-btn{font-family:var(--mono);font-size:10px;padding:3px 7px;border-radius:var(--radius-sm);border:1px dashed var(--border2);background:transparent;color:var(--text-dim);cursor:pointer;transition:all .15s;}
+.tog-btn:hover{border-color:var(--accent);color:var(--accent);}
+.tog-btn.on{border-style:solid;border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+
+/* BADGES */
+.badge{font-family:var(--mono);font-size:9px;font-weight:500;padding:2px 6px;border-radius:3px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;}
+.b-ship{background:var(--red-dim);color:var(--red);border:1px solid var(--red);}
+.b-warranty{background:var(--purple-dim);color:var(--purple);border:1px solid var(--purple);}
+.b-replacement{background:var(--orange-dim);color:var(--orange);border:1px solid var(--orange);}
+.b-shortage{background:var(--yellow-dim);color:var(--yellow);border:1px solid var(--yellow);}
+.b-merged{background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent);}
+
+/* EMPTY */
+#empty-state{text-align:center;padding:48px 20px;color:var(--text-dim);display:none;}
+#empty-state .ei{font-size:32px;margin-bottom:10px;}
+
+/* PRINT TEXT */
+.print-mat{display:none;}
+
+.handoff-mat-group{display:flex;align-items:center;gap:3px;}
+.handoff-mat-group label{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;}
+.handoff-mat-sel{font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);padding:2px 5px;cursor:pointer;outline:none;max-width:90px;}
+.handoff-mat-sel.has-need{border-color:var(--yellow);color:var(--yellow);background:var(--yellow-dim);}
+.handoff-mat-chip{font-size:10px;font-family:var(--mono);padding:1px 5px;border-radius:3px;white-space:nowrap;}
+.handoff-mat-chip.ok{color:var(--text-dim);}
+.handoff-mat-chip.need{color:var(--yellow);background:var(--yellow-dim);border:1px solid var(--yellow);}
+
+/* HANDOFF ROWS */
+.handoff-row{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.handoff-row.removed{opacity:.35;text-decoration:line-through;}
+.handoff-sku{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--text);min-width:120px;}
+.handoff-order{font-family:var(--mono);font-size:10px;color:var(--text-muted);}
+.handoff-due{font-size:10px;color:var(--text-muted);}
+.handoff-due.soon{color:var(--yellow);}
+.handoff-due.overdue{color:var(--red);}
+.handoff-qty-wrap{display:flex;align-items:center;gap:6px;margin-left:auto;}
+.handoff-qty-label{font-size:11px;color:var(--text-dim);}
+.handoff-qty-input{width:60px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-family:var(--mono);font-size:12px;padding:4px 7px;text-align:center;outline:none;}
+.handoff-qty-input:focus{border-color:var(--accent);}
+.handoff-remove{background:none;border:1px solid var(--red-dim);color:var(--red);border-radius:var(--radius-sm);padding:3px 8px;font-size:11px;cursor:pointer;transition:all .15s;}
+.handoff-remove:hover{background:var(--red-dim);}
+.handoff-restore{background:none;border:1px solid var(--border2);color:var(--text-muted);border-radius:var(--radius-sm);padding:3px 8px;font-size:11px;cursor:pointer;}
+
+/* CHANGEOVER DIVIDER */
+.changeover-divider{height:3px;background:var(--border2);border-radius:2px;margin:4px 0;position:relative;}
+.changeover-divider::after{content:'changeover';position:absolute;right:0;top:-9px;font-size:9px;font-family:var(--mono);color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;}
+
+/* ORDER CHIPS (merged cards) */
+.order-chip{display:inline-flex;align-items:center;gap:3px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:10px;margin-right:3px;}
+.order-remove-btn{background:none;border:none;color:var(--red);cursor:pointer;font-size:10px;padding:0 1px;line-height:1;opacity:.6;}
+.order-remove-btn:hover{opacity:1;}
+/* Source cell tag */
+.source-tag{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:3px;background:#1a2a1a;color:#5adf5a;border:1px solid #2a5020;white-space:nowrap;}
+.warranty-source-tag{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:3px;background:var(--purple-dim);color:var(--purple);border:1px solid var(--purple);white-space:nowrap;}
+.locked-source{opacity:.75;cursor:not-allowed!important;}
+
+/* ── LOGIN PAGE ── */
+#page-login{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;}
+.login-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:40px;width:100%;max-width:400px;box-shadow:var(--shadow);}
+.login-logo{font-family:var(--mono);font-size:22px;font-weight:500;color:var(--accent);letter-spacing:.1em;margin-bottom:4px;}
+.login-sub{font-size:12px;color:var(--text-muted);margin-bottom:32px;}
+.login-step{display:none;}
+.login-step.active{display:block;}
+.login-title{font-size:16px;font-weight:600;margin-bottom:4px;}
+.login-hint{font-size:12px;color:var(--text-muted);margin-bottom:20px;}
+.name-list{display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto;margin-bottom:16px;}
+.name-btn{width:100%;text-align:left;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;color:var(--text);font-family:var(--sans);font-size:13px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:space-between;}
+.name-btn:hover{background:var(--surface3);border-color:var(--border2);}
+.name-btn .nb-role{font-size:10px;color:var(--text-muted);font-family:var(--mono);}
+.name-search{margin-bottom:10px;}
+.pin-dots{display:flex;justify-content:center;gap:12px;margin:24px 0;}
+.pin-dot{width:14px;height:14px;border-radius:50%;background:var(--border2);transition:background .15s;}
+.pin-dot.filled{background:var(--accent);}
+.pin-pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:240px;margin:0 auto;}
+.pin-key{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:14px;font-size:18px;font-weight:500;cursor:pointer;transition:all .15s;text-align:center;color:var(--text);}
+.pin-key:hover{background:var(--surface3);border-color:var(--accent);color:var(--accent);}
+.pin-key.del{font-size:14px;color:var(--text-muted);}
+.pin-error{color:var(--red);font-size:12px;text-align:center;min-height:18px;margin-top:8px;}
+
+/* ── DASHBOARD PAGE ── */
+#page-dashboard{padding:24px;gap:20px;overflow:auto;}
+.dash-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.dash-title{font-size:20px;font-weight:700;letter-spacing:-.01em;}
+.dash-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.dash-stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;}
+.stat-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:6px;}
+.stat-val{font-size:28px;font-weight:700;font-family:var(--mono);letter-spacing:-.02em;}
+.stat-sub{font-size:11px;color:var(--text-muted);margin-top:3px;}
+.stat-green{color:var(--green);}
+.stat-yellow{color:var(--yellow);}
+.stat-red{color:var(--red);}
+.stat-accent{color:var(--accent);}
+
+.dash-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.dash-grid-full{grid-column:1/-1;}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
+.chart-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin-bottom:16px;}
+.chart-wrap{position:relative;height:220px;}
+
+/* Building heat map */
+.bldg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;}
+.bldg-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;transition:border-color .15s;}
+.bldg-card:hover{border-color:var(--border2);}
+.bldg-name{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);margin-bottom:4px;}
+.bldg-hours{font-family:var(--mono);font-size:20px;font-weight:500;}
+.bldg-cells{font-size:10px;color:var(--text-dim);margin-top:2px;}
+.bldg-bar{height:3px;border-radius:2px;margin-top:8px;background:var(--border);}
+.bldg-bar-fill{height:100%;border-radius:2px;transition:width .4s;}
+
+/* Cell table */
+.cell-table{width:100%;border-collapse:collapse;font-size:12px;}
+.cell-table th{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);background:var(--surface2);}
+.cell-table td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.cell-table tr:last-child td{border-bottom:none;}
+.cell-table tr:hover td{background:var(--surface2);}
+.cell-name{font-family:var(--mono);font-size:11px;color:var(--text);}
+.cell-hours{font-family:var(--mono);font-size:11px;}
+.cell-bar{width:80px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;}
+.cell-bar-fill{height:100%;border-radius:3px;}
+.cell-submitted{font-size:10px;color:var(--text-muted);}
+.cell-none{color:var(--text-dim);}
+.hours-green{color:var(--green);}
+.hours-yellow{color:var(--yellow);}
+.hours-red{color:var(--red);}
+.bar-green{background:var(--green);}
+.bar-yellow{background:var(--yellow);}
+.bar-red{background:var(--red);}
+.bar-none{background:var(--border2);}
+
+/* ── USER MGMT PAGE ── */
+#page-users{padding:24px;gap:16px;overflow:auto;}
+.users-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.users-title{font-size:20px;font-weight:700;}
+.users-table{width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+.users-table th{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);padding:10px 16px;text-align:left;border-bottom:1px solid var(--border);background:var(--surface2);}
+.users-table td{padding:10px 16px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.users-table tr:last-child td{border-bottom:none;}
+.users-table tr:hover td{background:var(--surface2);}
+.u-name{font-weight:500;}
+.u-role{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:3px;}
+.role-area_leader{background:var(--surface3);color:var(--text-muted);border:1px solid var(--border2);}
+.role-supervisor{background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent);}
+.role-manager{background:#1a2a10;color:#5adf5a;border:1px solid #2a5020;}
+.role-admin{background:#1a0a0a;color:#f87171;border:1px solid #5a1010;}
+.role-box_handler,.role-lumber_handler,.role-hardware_handler,.role-bending_handler,.role-slings_handler{background:#1a1a2a;color:#a0a0f0;border:1px solid #3030a0;}
+
+/* MATERIAL HANDLER VIEW */
+#mat-handler-view{flex-direction:column;gap:10px;}
+.mh-cell-selector{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.mh-cell-selector label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);}
+.mh-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+.mh-table{width:100%;border-collapse:collapse;font-size:12px;}
+.mh-table th{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);padding:8px 14px;text-align:left;border-bottom:1px solid var(--border);background:var(--surface2);}
+.mh-table td{padding:8px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.mh-table tr:last-child td{border-bottom:none;}
+.mh-table tr:hover td{background:var(--surface2);}
+.mh-table tr.mh-co-row td{border-top:2px solid var(--border2);}
+.mh-sku{font-family:var(--mono);font-size:12px;font-weight:500;}
+.mh-qty{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);}
+.mh-need{font-family:var(--mono);font-size:12px;color:var(--yellow);}
+.mh-have{font-size:11px;color:var(--green);}
+.mh-check{width:18px;height:18px;cursor:pointer;accent-color:var(--green);}
+.mh-comment{background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-family:var(--sans);font-size:11px;padding:4px 8px;width:180px;outline:none;}
+.mh-comment:focus{border-color:var(--accent);}
+.mh-done td{opacity:.45;text-decoration:line-through;}
+.mh-done td:first-child,.mh-done td:last-child{text-decoration:none;opacity:1;}
+.mh-section-hdr{background:var(--surface3);font-size:10px;font-weight:600;color:var(--text-muted);padding:4px 14px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--border);}
+/* Box handler groups */
+.mh-box-group{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--accent);padding:6px 14px;background:var(--surface3);border-bottom:1px solid var(--border);}
+.mh-box-total{font-size:13px;font-weight:700;color:var(--yellow);}
+.u-status{font-size:10px;}
+.u-active{color:var(--green);}
+.u-inactive{color:var(--text-dim);}
+.u-actions{display:flex;gap:6px;}
+
+/* ── MODAL ── */
+.modal-bd{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:500;display:none;align-items:center;justify-content:center;padding:20px;}
+.modal-bd.open{display:flex;}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;max-width:460px;width:100%;box-shadow:var(--shadow);}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:4px;}
+.modal-sub{font-size:12px;color:var(--text-muted);margin-bottom:20px;}
+.field-group{margin-bottom:14px;}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;}
+
+/* SAVED PANEL */
+#saved-panel{display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;}
+.saved-list{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
+.saved-row{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.saved-row-left{display:flex;align-items:center;gap:12px;}
+.saved-cell{font-family:var(--mono);font-size:12px;color:var(--accent);}
+.saved-time{font-size:11px;color:var(--text-muted);}
+.saved-by{font-size:11px;color:var(--text-dim);}
+.saved-row-right{display:flex;gap:6px;}
+
+/* TOAST */
+#toast{position:fixed;bottom:24px;right:24px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 16px;font-size:12px;box-shadow:var(--shadow);z-index:1000;transform:translateY(80px);opacity:0;transition:all .25s;max-width:300px;}
+#toast.show{transform:translateY(0);opacity:1;}
+#toast.ok{border-color:var(--green);color:var(--green);}
+#toast.err{border-color:var(--red);color:var(--red);}
+#toast.info{border-color:var(--accent);color:var(--accent);}
+
+.spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;display:inline-block;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.sep{width:1px;height:16px;background:var(--border);display:inline-block;}
+
+/* ── PRINT ── */
+#print-table-wrap{display:none;}
+@media print{
+  @page{margin:8mm;size:landscape;}
+  body{background:#fff;color:#000;font-size:9pt;font-family:Arial,sans-serif;}
+  #main-header,#totals-bar,#page-login,#page-dashboard,#page-users,
+  .paste-panel,#saved-panel,.sched-actions,.card-drag,
+  .tog-btn,#toast,.modal-bd,.btn-ghost,#sched-meta .btn,
+  #schedule-list,#empty-state,.changeover-divider{display:none!important;}
+  #page-schedule{display:block!important;padding:0;}
+  #app{display:block;}
+  #sched-meta{display:flex!important;margin-bottom:6px;}
+  #print-table-wrap{display:block!important;}
+  .meta-chip{background:#eee;color:#444;border-color:#ccc;font-size:8pt;}
+  #print-table{width:100%;border-collapse:collapse;font-size:8.5pt;}
+  #print-table th{font-size:7pt;text-transform:uppercase;letter-spacing:.05em;color:#444;padding:4px 6px;text-align:left;border-bottom:2px solid #333;background:#f5f5f5;white-space:nowrap;}
+  #print-table td{padding:4px 6px;border-bottom:1px solid #ddd;vertical-align:middle;}
+  #print-table tr.co-row td{border-top:2px solid #888;}
+  #print-table tr:last-child td{border-bottom:none;}
+  .pt-sku{font-family:monospace;font-weight:700;}
+  .pt-order{font-family:monospace;font-size:7pt;color:#555;}
+  .pt-takt{font-family:monospace;color:#1a6b1a;}
+  .pt-qty{font-family:monospace;font-weight:700;}
+  .pt-due{font-size:8pt;color:#555;}
+  .pt-due.soon{color:#b07000;font-weight:600;}
+  .pt-due.overdue{color:#c00;font-weight:600;}
+  .pt-mat-ok{font-size:7.5pt;color:#555;}
+  .pt-mat-need{font-size:7.5pt;color:#b07000;font-weight:700;}
+  .pt-badge{font-size:6pt;padding:1px 3px;border-radius:2px;white-space:nowrap;}
+  .pt-ship{background:#ffe0e0;color:#c00;}
+  .pt-warranty{background:#f0e0ff;color:#7700bb;}
+  .pt-repl{background:#fff0e0;color:#bb5500;}
+  .pt-src{font-size:6.5pt;color:#888;font-family:monospace;}
+  .modal-bd#modal-handoff .modal{max-width:100%;box-shadow:none;border:none;padding:0;}
+  #modal-handoff .modal-title{font-size:14pt;font-weight:700;margin-bottom:4px;}
+  .handoff-row{background:#fff;border:1px solid #ccc;border-radius:2px;padding:4px 8px;}
+  .handoff-row.removed{display:none;}
+  .handoff-remove,.handoff-restore,.modal-actions{display:none!important;}
+  .handoff-qty-input{border:1px solid #999;background:#fff;color:#000;}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ══════════════ LOGIN PAGE ══════════════ -->
+<div id="page-login" class="page" style="display:none;">
+  <div class="login-box">
+    <div class="login-logo">STS</div>
+    <div class="login-sub">Scheduling Team System — Syracuse, IN</div>
+
+    <!-- Step 1: Pick name -->
+    <div class="login-step active" id="ls-name">
+      <div class="login-title">Select your name</div>
+      <div class="login-hint">Choose your account to continue.</div>
+      <input class="input name-search" id="name-search" placeholder="Search…" oninput="filterNames(this.value)">
+      <div class="name-list" id="name-list"></div>
+      <div style="margin-top:12px;font-size:11px;color:var(--text-dim);">Don't see your name? Contact an Admin or Manager.</div>
+    </div>
+
+    <!-- Step 2: PIN entry -->
+    <div class="login-step" id="ls-pin">
+      <div class="login-title" id="pin-title">Enter your PIN</div>
+      <div class="login-hint" id="pin-hint">Enter your 4-digit PIN.</div>
+      <div class="pin-dots">
+        <div class="pin-dot" id="pd0"></div>
+        <div class="pin-dot" id="pd1"></div>
+        <div class="pin-dot" id="pd2"></div>
+        <div class="pin-dot" id="pd3"></div>
+      </div>
+      <div class="pin-pad" id="pin-pad"></div>
+      <div class="pin-error" id="pin-error"></div>
+      <div style="margin-top:16px;text-align:center;">
+        <button class="btn btn-ghost btn-sm" onclick="backToNames()">← Back</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Set new PIN -->
+    <div class="login-step" id="ls-setpin">
+      <div class="login-title">Set your PIN</div>
+      <div class="login-hint">Choose a 4-digit PIN. You'll use this every time you log in.</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px;" id="setpin-step-hint">Step 1 of 2: Enter your new PIN</div>
+      <div class="pin-dots">
+        <div class="pin-dot" id="npd0"></div>
+        <div class="pin-dot" id="npd1"></div>
+        <div class="pin-dot" id="npd2"></div>
+        <div class="pin-dot" id="npd3"></div>
+      </div>
+      <div class="pin-pad" id="new-pin-pad"></div>
+      <div class="pin-error" id="setpin-error"></div>
+      <div style="margin-top:16px;text-align:center;">
+        <button class="btn btn-ghost btn-sm" onclick="backToNames()">← Back</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ MAIN HEADER (hidden until logged in) ══════════════ -->
+<div id="main-header" style="display:none;">
+  <div class="hdr-left">
+    <div class="logo">STS<span class="logo-sep"> / </span>Scheduling Team System</div>
+    <nav class="nav-tabs" id="nav-tabs">
+      <button class="nav-tab active" onclick="showPage('schedule')" id="tab-schedule">Schedule</button>
+      <button class="nav-tab" onclick="showPage('dashboard')" id="tab-dashboard" style="display:none">Dashboard</button>
+      <button class="nav-tab" onclick="showPage('users')" id="tab-users" style="display:none">Users</button>
+    </nav>
+  </div>
+  <div class="hdr-right">
+    <div class="user-chip">
+      <div class="user-avatar" id="hdr-avatar">—</div>
+      <span id="hdr-name" style="font-size:12px;"></span>
+      <span class="role-pill" id="hdr-role"></span>
+    </div>
+    <div class="sep"></div>
+    <select class="select" id="view-as-select" style="display:none;width:160px;font-size:12px;" onchange="applyViewAs(this.value)">
+      <option value="">👁 View as…</option>
+      <option value="area_leader">Area Leader</option>
+      <option value="box_handler">Box Handler</option>
+      <option value="lumber_handler">Lumber Handler</option>
+      <option value="hardware_handler">Hardware Handler</option>
+      <option value="bending_handler">Bending Handler</option>
+      <option value="slings_handler">Slings Handler</option>
+    </select>
+  </div>
+</div>
+
+<!-- Totals bar -->
+<div id="totals-bar">
+  <div class="tc"><span class="tc-label">Total TAKT</span><span class="tc-val" id="tc-takt">—</span></div>
+  <div class="tc-div"></div>
+  <div class="tc"><span class="tc-label">Changeovers</span><span class="tc-val" id="tc-co">—</span></div>
+  <div class="tc-div"></div>
+  <div class="tc"><span class="tc-label">SKUs</span><span class="tc-val" id="tc-skus">—</span></div>
+  <div class="tc-div"></div>
+  <div class="tc"><span class="tc-label">Units</span><span class="tc-val" id="tc-units">—</span></div>
+</div>
+
+<!-- ══════════════ SCHEDULE PAGE ══════════════ -->
+<div id="page-schedule" class="page" style="display:none;">
+  <div class="paste-panel" id="paste-panel">
+    <div class="panel-title">Paste Raw Sabertooth Data</div>
+    <textarea id="raw-input" placeholder="Paste Sabertooth schedule data here…"></textarea>
+    <div class="paste-row">
+      <button class="btn btn-primary btn-sm" id="btn-parse">⚡ Parse Schedule</button>
+      <button class="btn btn-ghost btn-sm" id="btn-load-saved">📁 Saved Schedules</button>
+      <button class="btn btn-ghost btn-sm" id="btn-load-warranty">⚙ Load Warranties</button>
+    </div>
+    <div id="parse-error"></div>
+  </div>
+
+  <div id="sched-meta">
+    <div class="sched-meta-left">
+      <span class="meta-chip" id="meta-cell">—</span>
+      <span class="meta-chip" id="meta-count">0 SKUs</span>
+      <span class="meta-chip" id="meta-saved" style="display:none;">💾 Unsaved</span>
+    </div>
+    <div class="sched-actions">
+      <button class="btn btn-ghost btn-sm" id="btn-add-variant" style="display:none;" onclick="openAddVariant()">＋ Add Variant</button>
+      <button class="btn btn-ghost btn-sm" id="btn-combine-variants" style="display:none;" onclick="combineVariants()">⊕ Combine Variants</button>
+      <button class="btn btn-ghost btn-sm" id="btn-clear">✕ Clear</button>
+      <button class="btn btn-ghost btn-sm" id="btn-handoff">🔁 Handoff</button>
+      <button class="btn btn-ghost btn-sm" id="btn-load-warranty-current">⚙ Load Warranties</button>
+      <button class="btn btn-ghost btn-sm" id="btn-print">🖨 Print</button>
+      <button class="btn btn-success btn-sm" id="btn-save">💾 Save</button>
+    </div>
+  </div>
+
+  <div id="saved-panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;">
+      <span class="panel-title" style="margin:0;">Saved Schedules</span>
+      <button class="btn btn-ghost btn-xs" onclick="document.getElementById('saved-panel').style.display='none'">✕</button>
+    </div>
+    <div class="saved-list" id="saved-list"></div>
+  </div>
+
+  <div id="schedule-list"></div>
+  <div id="empty-state">
+    <div class="ei">📋</div>
+    <p>Paste Sabertooth data and click Parse to begin.</p>
+  </div>
+  <!-- Print table (hidden on screen, shown on print) -->
+  <div id="print-table-wrap">
+    <table id="print-table">
+      <thead><tr>
+        <th>SKU</th><th>Qty</th><th>TAKT</th><th>Due</th><th>Flags</th><th>Boxes</th><th>Hardware</th><th>Lumber</th>
+      </tr></thead>
+      <tbody id="print-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- Material handler view (hidden unless active) -->
+  <div id="mat-handler-view" style="display:none;"></div>
+</div>
+
+<!-- ══════════════ DASHBOARD PAGE ══════════════ -->
+<div id="page-dashboard" class="page" style="display:none;">
+  <div class="dash-header">
+    <div class="dash-title">Schedule Dashboard</div>
+    <div class="dash-filters">
+      <select class="select" id="dash-bldg-filter" style="width:160px;" onchange="renderDashboard()">
+        <option value="all">All Buildings</option>
+        <option value="B2-1">B2-1 (Cells 1–14)</option>
+        <option value="B2-2">B2-2 (Cells 15–28)</option>
+        <option value="B4">B4 (Cells 29–38)</option>
+        <option value="B1-1">B1-1 (Cells 39–48)</option>
+        <option value="B1-2">B1-2 (Cells 49–58)</option>
+      </select>
+      <select class="select" id="dash-sec-filter" style="width:140px;" onchange="renderDashboard()">
+        <option value="all">Primary + Secondary</option>
+        <option value="primary">Primary Only</option>
+        <option value="secondary">Secondary Only</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="loadDashboard()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div class="dash-stat-row" id="dash-stats"></div>
+
+  <div class="dash-grid">
+    <div class="chart-card dash-grid-full">
+      <div class="chart-title">Hours Scheduled by Cell</div>
+      <div class="chart-wrap"><canvas id="chart-cells"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Hours by Building</div>
+      <div class="bldg-grid" id="bldg-heat"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Cell Detail</div>
+      <div style="overflow-x:auto;">
+        <table class="cell-table" id="cell-table">
+          <thead><tr>
+            <th>Cell</th><th>Building</th><th>Hours</th><th>Load</th><th>Last Updated</th><th>By</th>
+          </tr></thead>
+          <tbody id="cell-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ USERS PAGE ══════════════ -->
+<div id="page-users" class="page" style="display:none;">
+  <div class="users-header">
+    <div class="users-title">User Management</div>
+    <button class="btn btn-primary btn-sm" onclick="openAddUser()">+ Add Employee</button>
+  </div>
+  <table class="users-table" id="users-table">
+    <thead><tr>
+      <th>Name</th><th>Role</th><th>Campus</th><th>PIN Set</th><th>Status</th><th>Actions</th>
+    </tr></thead>
+    <tbody id="users-tbody"></tbody>
+  </table>
+</div>
+
+<!-- ══════════════ MODALS ══════════════ -->
+<!-- Handoff modal -->
+<div class="modal-bd" id="modal-handoff" style="z-index:600;">
+  <div class="modal" style="max-width:700px;width:100%;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+      <div class="modal-title">Shift Handoff</div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" onclick="printHandoff()">🖨 Print</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeModal('modal-handoff')">✕ Close</button>
+      </div>
+    </div>
+    <div class="modal-sub" id="handoff-sub">Remove completed orders and adjust remaining quantities before handing off to the next shift.</div>
+    <div id="handoff-list" style="display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow-y:auto;margin-top:12px;"></div>
+    <div id="handoff-empty" style="display:none;text-align:center;padding:32px;color:var(--text-dim);font-size:13px;">No items from today's schedules found for this cell.</div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:11px;color:var(--text-muted);">Remaining items will be passed to the next shift.</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text-muted);">Total remaining: <span id="handoff-total" style="color:var(--text);"></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Save modal -->
+<div class="modal-bd" id="modal-save">
+  <div class="modal">
+    <div class="modal-title">Save Schedule</div>
+    <div class="modal-sub">This schedule will be saved under your name.</div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;font-size:13px;color:var(--text-muted);">
+      Saving as: <strong id="save-as-name" style="color:var(--text);"></strong><br>
+      Cell: <strong id="save-as-cell" style="color:var(--text);"></strong>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="btn-save-cancel">Cancel</button>
+      <button class="btn btn-success" id="btn-save-confirm">💾 Save & Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit user modal -->
+<div class="modal-bd" id="modal-user">
+  <div class="modal">
+    <div class="modal-title" id="modal-user-title">Add Employee</div>
+    <div class="modal-sub" id="modal-user-sub">New employees start as Area Leader and set their own PIN on first login.</div>
+    <div class="field-group">
+      <label class="field-label">Full Name</label>
+      <input class="input" id="u-name" placeholder="e.g. Jesse Rutan">
+    </div>
+    <div class="field-group">
+      <label class="field-label">Role</label>
+      <select class="select" id="u-role">
+        <option value="area_leader">Area Leader</option>
+        <option value="supervisor">Supervisor</option>
+        <option value="manager">Manager</option>
+        <option value="admin">Admin</option>
+        <optgroup label="Material Handlers">
+          <option value="box_handler">Box Handler</option>
+          <option value="lumber_handler">Lumber Handler</option>
+          <option value="hardware_handler">Hardware Handler</option>
+          <option value="bending_handler">Bending Handler</option>
+          <option value="slings_handler">Slings Handler</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="field-group">
+      <label class="field-label">Campus</label>
+      <select class="select" id="u-campus">
+        <option value="SY">Syracuse (SY)</option>
+        <option value="RX">Roxboro (RX)</option>
+      </select>
+    </div>
+    <div class="field-group" id="u-active-group" style="display:none;">
+      <label class="field-label">Status</label>
+      <select class="select" id="u-active">
+        <option value="true">Active</option>
+        <option value="false">Inactive</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-user')">Cancel</button>
+      <button class="btn btn-primary" id="btn-user-confirm">Save Employee</button>
+    </div>
+  </div>
+</div>
+
+<!-- Change PIN modal -->
+<div class="modal-bd" id="modal-pin">
+  <div class="modal">
+    <div class="modal-title">Change PIN</div>
+    <div class="modal-sub">Enter your current PIN, then choose a new one.</div>
+    <div class="field-group">
+      <label class="field-label">Current PIN</label>
+      <input class="input" id="pin-current" type="password" maxlength="4" placeholder="••••" inputmode="numeric">
+    </div>
+    <div class="field-group">
+      <label class="field-label">New PIN</label>
+      <input class="input" id="pin-new" type="password" maxlength="4" placeholder="••••" inputmode="numeric">
+    </div>
+    <div class="field-group">
+      <label class="field-label">Confirm New PIN</label>
+      <input class="input" id="pin-confirm" type="password" maxlength="4" placeholder="••••" inputmode="numeric">
+    </div>
+    <div class="pin-error" id="change-pin-error" style="text-align:left;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-pin')">Cancel</button>
+      <button class="btn btn-primary" onclick="doChangePin()">Update PIN</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+//  CONFIG
+// ══════════════════════════════════════════════════════════════════
+const SB_URL='https://shvpwfddsfmrxiywurcm.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNodnB3ZmRkc2ZtcnhpeXd1cmNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2NDM3MjMsImV4cCI6MjA4ODIxOTcyM30.yZeg5ErBd42iMBchtDrfxE6TsUZRLoqAHpedqLWi06w';
+
+const BUILDINGS={
+  'B2-1':{label:'B2-1',cells:range(1,14)},
+  'B2-2':{label:'B2-2',cells:range(15,28)},
+  'B4'  :{label:'B4',  cells:range(29,38)},
+  'B1-1':{label:'B1-1',cells:range(39,48)},
+  'B1-2':{label:'B1-2',cells:range(49,58)},
+};
+function range(a,b){const r=[];for(let i=a;i<=b;i++)r.push(i);return r;}
+// Extract base cell number from names like "Cell 39a", "Cell 41 - AD400", "Cell 53b - Secondary"
+function cellBaseNum(cellNameStr){
+  const m=cellNameStr.match(/Cell\s+(\d+)/i);
+  return m?parseInt(m[1]):null;
+}
+function cellBuilding(n){for(const[k,v]of Object.entries(BUILDINGS)){if(v.cells.includes(n))return k;}return 'Other';}
+
+// ══════════════════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════════════════
+let currentUser=null; // {id,name,role,campus}
+let scheduleItems=[];
+let cellName='';
+let variantSources=[]; // [{cellName, items[]}] — stacked variants before combine
+let savedScheduleId=null;
+let lastSavedState=null;
+let dragSrcIndex=null;
+let allEmployees=[];
+let dashData=null;
+let cellChart=null;
+let pendingPrintAfterSave=false;
+
+// ══════════════════════════════════════════════════════════════════
+//  SUPABASE
+// ══════════════════════════════════════════════════════════════════
+async function sb(path,method='GET',body=null,extra={}){
+  const h={'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json'};
+  if(method==='POST') h['Prefer']='return=representation';
+  if(extra.prefer) h['Prefer']=extra.prefer;
+  const opts={method,headers:h};
+  if(body) opts.body=JSON.stringify(body);
+  const r=await fetch(SB_URL+'/rest/v1/'+path,opts);
+  if(!r.ok){const e=await r.text();throw new Error(e);}
+  if(method==='DELETE') return null;
+  const text=await r.text();
+  return text?JSON.parse(text):null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  PIN HASHING (simple SHA-256)
+// ══════════════════════════════════════════════════════════════════
+async function hashPin(pin){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('sts_'+pin));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  LOGIN
+// ══════════════════════════════════════════════════════════════════
+let loginEmployee=null;
+let pinBuffer='';
+let newPinFirst='';
+let setPinMode=false; // true=setting new, false=entering existing
+
+async function initLogin(){
+  const listEl=document.getElementById('name-list');
+  listEl.innerHTML='<span style="color:var(--text-muted);font-size:12px;">Loading…</span>';
+  try{
+    // Fetch all active employees — note: Supabase boolean filter is 'eq.true' (lowercase)
+    const emps=await sb('sts_employees?active=eq.true&order=name.asc&select=id,name,role,campus,pin_hash');
+    allEmployees=Array.isArray(emps)?emps:[];
+    listEl.innerHTML=`<span style="color:var(--text-dim);font-size:11px;display:block;margin-bottom:4px;">Found ${allEmployees.length} employee(s)</span>`;
+    if(!allEmployees.length){
+      listEl.innerHTML+='<span style="color:var(--yellow);font-size:12px;">No active employees found. Check that your row has active = true in Supabase.</span>';
+      return;
+    }
+    renderNameList(allEmployees);
+  }catch(e){
+    listEl.innerHTML=`<span style="color:var(--red);font-size:12px;">Error: ${e.message}</span>`;
+    console.error('initLogin error:',e);
+  }
+}
+
+function renderNameList(list){
+  const el=document.getElementById('name-list');
+  if(!list.length){
+    el.innerHTML='<span style="color:var(--text-dim);font-size:12px;">No employees match.</span>';
+    return;
+  }
+  const btns=document.createDocumentFragment();
+  list.forEach(e=>{
+    const btn=document.createElement('button');
+    btn.className='name-btn';
+    btn.innerHTML=`${e.name}<span class="nb-role">${e.role.replace('_',' ')}</span>`;
+    btn.addEventListener('click',()=>selectEmployee(e.id));
+    btns.appendChild(btn);
+  });
+  el.innerHTML='';
+  el.appendChild(btns);
+}
+
+function filterNames(q){
+  const filtered=allEmployees.filter(e=>e.name.toLowerCase().includes(q.toLowerCase()));
+  renderNameList(filtered);
+}
+
+function selectEmployee(id){
+  loginEmployee=allEmployees.find(e=>e.id===id);
+  if(!loginEmployee) return;
+  pinBuffer='';
+  if(!loginEmployee.pin_hash){
+    // No PIN set — go to set PIN flow
+    setPinMode=true;
+    newPinFirst='';
+    document.getElementById('setpin-step-hint').textContent='Step 1 of 2: Enter your new PIN';
+    clearPinDots('npd');
+    document.getElementById('setpin-error').textContent='';
+    showLoginStep('ls-setpin');
+    buildPinPad('new-pin-pad',newPinKeypress);
+  } else {
+    setPinMode=false;
+    document.getElementById('pin-title').textContent='Enter your PIN';
+    document.getElementById('pin-hint').textContent='Welcome back, '+loginEmployee.name.split(' ')[0]+'!';
+    document.getElementById('pin-error').textContent='';
+    clearPinDots('pd');
+    showLoginStep('ls-pin');
+    buildPinPad('pin-pad',pinKeypress);
+  }
+}
+
+function showLoginStep(id){
+  document.querySelectorAll('.login-step').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+function backToNames(){pinBuffer='';newPinFirst='';loginEmployee=null;showLoginStep('ls-name');}
+
+function buildPinPad(containerId,handler){
+  const el=document.getElementById(containerId);
+  const keys=['1','2','3','4','5','6','7','8','9','','0','⌫'];
+  el.innerHTML=keys.map(k=>k===''?'<div></div>':`<button class="pin-key${k==='⌫'?' del':''}" onclick="${handler.name}('${k}')">${k}</button>`).join('');
+}
+
+function clearPinDots(prefix){for(let i=0;i<4;i++)document.getElementById(prefix+i).className='pin-dot';}
+function updatePinDots(prefix,len){for(let i=0;i<4;i++)document.getElementById(prefix+i).className='pin-dot'+(i<len?' filled':'');}
+
+function pinKeypress(k){
+  if(k==='⌫'){pinBuffer=pinBuffer.slice(0,-1);}
+  else if(pinBuffer.length<4){pinBuffer+=k;}
+  updatePinDots('pd',pinBuffer.length);
+  document.getElementById('pin-error').textContent='';
+  if(pinBuffer.length===4) setTimeout(submitPin,120);
+}
+
+async function submitPin(){
+  const h=await hashPin(pinBuffer);
+  if(h===loginEmployee.pin_hash){
+    completeLogin(loginEmployee);
+  } else {
+    document.getElementById('pin-error').textContent='Incorrect PIN. Try again.';
+    pinBuffer='';clearPinDots('pd');
+  }
+}
+
+function newPinKeypress(k){
+  if(k==='⌫'){pinBuffer=pinBuffer.slice(0,-1);}
+  else if(pinBuffer.length<4){pinBuffer+=k;}
+  updatePinDots('npd',pinBuffer.length);
+  document.getElementById('setpin-error').textContent='';
+  if(pinBuffer.length===4){
+    if(!newPinFirst){
+      // First entry done — ask to confirm
+      newPinFirst=pinBuffer;pinBuffer='';
+      document.getElementById('setpin-step-hint').textContent='Step 2 of 2: Confirm your new PIN';
+      clearPinDots('npd');
+    } else {
+      setTimeout(confirmNewPin,120);
+    }
+  }
+}
+
+async function confirmNewPin(){
+  if(pinBuffer!==newPinFirst){
+    document.getElementById('setpin-error').textContent='PINs do not match. Starting over.';
+    newPinFirst='';pinBuffer='';clearPinDots('npd');
+    document.getElementById('setpin-step-hint').textContent='Step 1 of 2: Enter your new PIN';
+    return;
+  }
+  const h=await hashPin(pinBuffer);
+  try{
+    await sb('sts_employees?id=eq.'+loginEmployee.id,'PATCH',{pin_hash:h},{prefer:'return=minimal'});
+    loginEmployee.pin_hash=h;
+    completeLogin(loginEmployee);
+    toast('PIN set successfully!','ok');
+  }catch(e){
+    document.getElementById('setpin-error').textContent='Error saving PIN: '+e.message;
+    newPinFirst='';pinBuffer='';clearPinDots('npd');
+  }
+}
+
+function completeLogin(emp){
+  currentUser={id:emp.id,name:emp.name,role:emp.role,campus:emp.campus};
+  // Store in sessionStorage
+  sessionStorage.setItem('sts_user',JSON.stringify(currentUser));
+  bootApp();
+}
+
+function logout(){
+  sessionStorage.removeItem('sts_user');
+  currentUser=null;scheduleItems=[];cellName='';savedScheduleId=null;
+  document.getElementById('main-header').style.display='none';
+  document.getElementById('totals-bar').style.display='none';
+  document.querySelectorAll('.page').forEach(p=>{p.style.display='none';p.classList.remove('active');});
+  document.getElementById('page-login').style.display='flex';
+  document.getElementById('page-login').classList.add('active');
+  document.getElementById('name-search').value='';
+  initLogin();
+  showLoginStep('ls-name');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  APP BOOT
+// ══════════════════════════════════════════════════════════════════
+function bootApp(){
+  document.getElementById('page-login').style.display='none';
+  document.getElementById('page-login').classList.remove('active');
+  document.getElementById('main-header').style.display='flex';
+
+  const initials=currentUser.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  document.getElementById('hdr-avatar').textContent=initials;
+  document.getElementById('hdr-name').textContent=currentUser.name;
+  document.getElementById('hdr-role').textContent=currentUser.role.replace(/_/g,' ');
+
+  const isMatHandler=['box_handler','lumber_handler','hardware_handler','bending_handler','slings_handler'].includes(currentUser.role);
+  const canDash=['supervisor','manager','admin'].includes(currentUser.role);
+  const canUsers=['manager','admin'].includes(currentUser.role);
+  const isAdmin=currentUser.role==='admin';
+
+  document.getElementById('tab-dashboard').style.display=canDash?'':'none';
+  document.getElementById('tab-users').style.display=canUsers?'':'none';
+  // Show View As dropdown for admins only
+  document.getElementById('view-as-select').style.display=isAdmin?'':'none';
+
+  if(isMatHandler){
+    showPage('schedule');
+    showMatHandlerView(currentUser.role);
+  } else {
+    showPage('schedule');
+  }
+}
+
+let activeViewAs=''; // empty = use real role
+
+function applyViewAs(role){
+  activeViewAs=role;
+  if(!role){
+    // Reset to real view
+    document.getElementById('mat-handler-view').style.display='none';
+    document.getElementById('schedule-list').style.display='';
+    document.getElementById('empty-state').style.display=scheduleItems.length?'none':'block';
+    render();
+  } else {
+    showMatHandlerView(role);
+  }
+}
+
+function showPage(p){
+  document.querySelectorAll('.page').forEach(el=>{el.style.display='none';el.classList.remove('active');});
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+p).classList.add('active');
+  const pg=document.getElementById('page-'+p);
+  pg.style.display='flex';pg.classList.add('active');
+
+  if(p==='dashboard') loadDashboard();
+  if(p==='users') loadUsers();
+  if(p==='schedule'){
+    document.getElementById('totals-bar').style.display=scheduleItems.length?'flex':'none';
+  } else {
+    document.getElementById('totals-bar').style.display='none';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  PARSER
+// ══════════════════════════════════════════════════════════════════
+function parseRaw(text){
+  const items=[];
+  const lines=text
+    .replace(/\u00A0/g,' ')
+    .replace(/[–—]/g,'-')
+    .split(/\r?\n/)
+    .map(l=>l.trim())
+    .filter(Boolean);
+
+function extractCellName(candidate){
+    const m=String(candidate||'').match(
+      /^(Production|Euro)\s+(\d+[ab]?(?:\s*-\s*(?:Secondary|AD\d+|RST\d+|SBT\/ECT|UNN\w+|UNPL\w+|CKR\w+|R\d+|THM|TO\s+Hold))?)\s*$/i
+    );
+    if(!m)return null;
+    const type=m[1].toLowerCase();
+    const rest=m[2].trim();
+    if(type==='euro') return 'Euro '+rest.replace(/\s*-\s*Secondary.*/i,'').trim();
+    const isSecondary=/secondary/i.test(rest);
+    const base=rest.replace(/\s*-?\s*secondary.*/i,'').trim();
+    return 'Cell '+base+(isSecondary?' - Secondary':'');
+  }
+
+  let parsedCellName='Unknown Cell';
+
+  for(const line of lines){
+    const c=extractCellName(line);
+    if(c){parsedCellName=c;break;}
+  }
+
+  const dueRe=/^Due:\s*(.+)/i;
+  const mustShipRe=/^Must\s+Ship$/i;
+  const taktRe=/^\s*\d+\s*:\s*\d{2}(?::\d{2})?\s*$/;
+
+  const skuLineRe=/^\s*(\d+)\s*(?:x|X|×)\s+([A-Z0-9][A-Z0-9_-]*)\b(.*)$/i;
+
+  function parseOrdersFromLine(line){
+    const orders=[];
+    const orderPattern=/(?:Inventory\s+)?Order\s*#[:\s]*(?:__)?([A-Z0-9]+)(?:__)?\s*\((\d+)\/(\d+)\)/gi;
+    let match;
+    while((match=orderPattern.exec(line))!==null){
+      const orderNum=match[1];
+      const built=parseInt(match[2],10);
+      const total=parseInt(match[3],10);
+      const remaining=total-built;
+      if(remaining>0) orders.push({orderNum,built,total,remaining});
+    }
+    return orders;
+  }
+
+  let currentDue=null;
+  let currentMustShip=false;
+  let pendingTakt=null;
+
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i];
+
+    const dueMatch=line.match(dueRe);
+    if(dueMatch){
+      currentDue=dueMatch[1].trim();
+      currentMustShip=false;
+      continue;
+    }
+
+    if(mustShipRe.test(line)){
+      currentMustShip=true;
+      continue;
+    }
+
+    if(taktRe.test(line)){
+      pendingTakt=parseTakt(line);
+      continue;
+    }
+
+    const sm=line.match(skuLineRe);
+    if(!sm) continue;
+
+    const listedQty=parseInt(sm[1],10);
+    const sku=sm[2];
+    const rest=sm[3]||'';
+    const orders=parseOrdersFromLine(line);
+
+    let qty=listedQty;
+    let totalQty=listedQty;
+
+    if(orders.length){
+      qty=orders.reduce((s,o)=>s+o.remaining,0);
+      totalQty=orders.reduce((s,o)=>s+o.total,0);
+    }
+
+    if(qty<=0) continue;
+
+    let taktForLine=0;
+
+    if(pendingTakt!==null){
+      taktForLine=pendingTakt;
+      pendingTakt=null;
+    } else {
+      for(let back=i-1;back>=Math.max(0,i-6);back--){
+        if(taktRe.test(lines[back])){
+          taktForLine=parseTakt(lines[back]);
+          break;
+        }
+      }
+      if(!taktForLine){
+        for(let fwd=i+1;fwd<Math.min(lines.length,i+6);fwd++){
+          if(taktRe.test(lines[fwd])){
+            taktForLine=parseTakt(lines[fwd]);
+            break;
+          }
+        }
+      }
+    }
+
+    const taktPerUnit=qty>0?taktForLine/qty:0;
+    const breakdown=orders.length
+      ?orders.map(o=>({
+          orderNum:o.orderNum,
+          qty:o.remaining,
+          taktMins:Math.round(taktPerUnit*o.remaining*10)/10,
+          dueDate:currentDue
+        }))
+      :[{orderNum:null,qty,taktMins:taktForLine,dueDate:currentDue}];
+
+    const orderNums=breakdown.map(o=>o.orderNum).filter(Boolean);
+    const firstOrderNum=orderNums[0]||null;
+
+    items.push({
+      sku,
+      qty,
+      totalQty,
+      taktMins:Math.round(taktForLine*10)/10,
+      taktStr:fmtTakt(taktForLine),
+      dueDate:currentDue,
+      mustShip:currentMustShip,
+      orderNum:firstOrderNum,
+      orderType:detectType(firstOrderNum),
+      orderBreakdown:breakdown,
+      orderNums,
+      sourceCell:parsedCellName,
+      boxes:'have_all',
+      hardware:'have_all',
+      lumber:'have_all',
+      slings:'have_all',
+      bentParts:'have_all',
+      showSlings:false,
+      showBentParts:false,
+      merged:false
+    });
+  }
+
+  const merged=[];
+  items.forEach(it=>{
+    const ex=merged.find(m=>m.sku===it.sku&&m.dueDate===it.dueDate&&m.sourceCell===it.sourceCell);
+    if(ex){
+      ex.qty+=it.qty;
+      ex.totalQty+=it.totalQty;
+      ex.taktMins+=it.taktMins;
+      ex.taktStr=fmtTakt(ex.taktMins);
+      ex.orderNums=[...new Set([...ex.orderNums,...it.orderNums])];
+      ex.mustShip=ex.mustShip||it.mustShip;
+      ex.merged=true;
+      ex.orderBreakdown.push(...it.orderBreakdown);
+    }else{
+      merged.push({...it,orderNums:[...it.orderNums],orderBreakdown:[...it.orderBreakdown]});
+    }
+  });
+
+  return {items:merged,cellName:parsedCellName};
+}
+
+function parseTakt(s){
+  const p=String(s).replace(/\s+/g,'').split(':').map(n=>parseInt(n,10)||0);
+  if(p.length===3) return p[0]*60+p[1]+Math.round(p[2]/60);
+  return p[0]*60+p[1];
+}
+
+function parseTakt(s){const p=s.split(':');return parseInt(p[0])*60+parseInt(p[1]);}
+function fmtTakt(m){const h=Math.floor(m/60),mm=Math.round(m%60);return h>0?h+':'+String(mm).padStart(2,'0'):'0:'+String(mm).padStart(2,'0');}
+function fmtTaktH(m){const h=Math.floor(m/60),mm=Math.round(m%60);if(h&&mm)return h+'h '+mm+'m';if(h)return h+'h';return mm+'m';}
+function detectType(o){if(!o)return 'standard';if(o.startsWith('WR'))return 'warranty';if(o.startsWith('FR'))return 'replacement';return 'standard';}
+function baseSku(s){
+  if(!s)return'';
+  let t=String(s).toUpperCase().replace(/\u00A0/g,' ').replace(/–/g,'-').trim();
+  if(!t)return'';
+  let left=t.split('-')[0];
+  if(/\d/.test(left)){const c=left.replace(/[A-Z]+$/,'');return c||left;}
+  const colorSfx=/(BL|GY|SA|MA|WH|TE|VCF|VSH)$/;
+  if(colorSfx.test(left)){const w=left.replace(colorSfx,'');return w||left;}
+  return left;
+}
+function cleanDate(s){return s.replace(/(\d+)(st|nd|rd|th)/,'$1').replace(/^[A-Za-z]+,\s*/,'');}
+function isDueSoon(s){if(!s)return false;try{const d=new Date(cleanDate(s));return(d-Date.now())/86400000<=2&&(d-Date.now())/86400000>=0;}catch{return false;}}
+function isDueOverdue(s){if(!s)return false;try{return new Date(cleanDate(s))<new Date();}catch{return false;}}
+
+// ══════════════════════════════════════════════════════════════════
+//  MATERIALS
+// ══════════════════════════════════════════════════════════════════
+function buildOpts(cur,max){
+  let h=`<option value="have_all" ${cur==='have_all'?'selected':''}>Have All</option>`;
+  for(let n=1;n<=Math.min(max,100);n++) h+=`<option value="need_${n}" ${cur===`need_${n}`?'selected':''}>Need ${n}</option>`;
+  return h;
+}
+function matCls(v){return'mat-sel'+(v&&v!=='have_all'?' has-need':'');}
+function matPrint(lbl,v){
+  if(!v||v==='have_all')return`<span class="print-mat">${lbl}:✓</span>`;
+  return`<span class="print-mat needs">${lbl}:Need ${v.replace('need_','')}</span>`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  TOTALS
+// ══════════════════════════════════════════════════════════════════
+function updateTotals(){
+  const bar=document.getElementById('totals-bar');
+  if(!scheduleItems.length){bar.style.display='none';return;}
+  bar.style.display='flex';
+  const totalMins=scheduleItems.reduce((s,it)=>s+it.taktMins,0);
+  const totalUnits=scheduleItems.reduce((s,it)=>s+it.qty,0);
+  let co=0;for(let i=1;i<scheduleItems.length;i++)if(baseSku(scheduleItems[i].sku)!==baseSku(scheduleItems[i-1].sku))co++;
+  const tEl=document.getElementById('tc-takt');
+  tEl.textContent=fmtTaktH(totalMins);
+  tEl.className='tc-val '+(totalMins<240?'tc-green':totalMins<480?'tc-yellow':'tc-red');
+  document.getElementById('tc-co').textContent=co;
+  document.getElementById('tc-skus').textContent=scheduleItems.length;
+  document.getElementById('tc-units').textContent=totalUnits;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  PRINT TABLE BUILDER
+// ══════════════════════════════════════════════════════════════════
+function buildPrintTable(){
+  const tbody=document.getElementById('print-tbody');
+  if(!tbody)return;
+
+  // Determine if any items have slings/bent parts toggled on
+  const hasSlings=scheduleItems.some(it=>it.showSlings);
+  const hasBentParts=scheduleItems.some(it=>it.showBentParts);
+
+  // Update header to match
+  const thead=document.querySelector('#print-table thead tr');
+  if(thead){
+    thead.innerHTML=`
+      <th>SKU</th><th>Qty</th><th>TAKT</th><th>Due</th><th>Flags</th>
+      <th>Boxes</th><th>Hardware</th><th>Lumber</th>
+      ${hasSlings?'<th>Slings</th>':''}
+      ${hasBentParts?'<th>Bent Parts</th>':''}`;
+  }
+
+  function matCell(val){
+    if(!val||val==='have_all') return '<span class="pt-mat-ok">✓</span>';
+    return `<span class="pt-mat-need">Need ${val.replace('need_','')}</span>`;
+  }
+
+  const rows=[];
+  scheduleItems.forEach((it,idx)=>{
+    const isNewCO=idx>0&&baseSku(scheduleItems[idx].sku)!==baseSku(scheduleItems[idx-1].sku);
+    const dueCls=isDueOverdue(it.dueDate)?'pt-due overdue':isDueSoon(it.dueDate)?'pt-due soon':'pt-due';
+    const flags=[
+      it.mustShip?'<span class="pt-badge pt-ship">Must Ship</span>':'',
+      it.orderType==='warranty'?'<span class="pt-badge pt-warranty">Warranty</span>':'',
+      it.orderType==='replacement'?'<span class="pt-badge pt-repl">Repl.</span>':'',
+    ].filter(Boolean).join(' ');
+    const srcStr=(it.sourceCells&&it.sourceCells.length>1)?`<div class="pt-src">${it.sourceCells.join(', ')}</div>`:'';
+    rows.push(`<tr class="${isNewCO?'co-row':''}">
+      <td><span class="pt-sku">${it.sku}</span>${srcStr}</td>
+      <td class="pt-qty">×${it.qty}</td>
+      <td class="pt-takt">${it.taktStr}</td>
+      <td class="${dueCls}">${it.dueDate||'—'}</td>
+      <td>${flags||'—'}</td>
+      <td>${matCell(it.boxes)}</td>
+      <td>${matCell(it.hardware)}</td>
+      <td>${matCell(it.lumber)}</td>
+      ${hasSlings?`<td>${it.showSlings?matCell(it.slings):'—'}</td>`:''}
+      ${hasBentParts?`<td>${it.showBentParts?matCell(it.bentParts):'—'}</td>`:''}
+    </tr>`);
+  });
+  tbody.innerHTML=rows.join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  MATERIAL HANDLER VIEW
+// ══════════════════════════════════════════════════════════════════
+const MAT_HANDLER_CONFIG={
+  box_handler:    {field:null,      label:'Box Handler',    col:'Boxes',     showBoxGroups:true},
+  lumber_handler: {field:'lumber',  label:'Lumber Handler', col:'Lumber',    showBoxGroups:false},
+  hardware_handler:{field:'hardware',label:'Hardware Handler',col:'Hardware',showBoxGroups:false},
+  bending_handler:{field:'bentParts',label:'Bending Handler',col:'Bent Parts',showBoxGroups:false},
+  slings_handler: {field:'slings',  label:'Slings Handler', col:'Slings',   showBoxGroups:false},
+};
+
+let mhCheckState={}; // {idx: {done, comment}}
+
+function showMatHandlerView(role){
+  const cfg=MAT_HANDLER_CONFIG[role];
+  if(!cfg)return;
+
+  document.getElementById('schedule-list').style.display='none';
+  document.getElementById('empty-state').style.display='none';
+
+  const wrap=document.getElementById('mat-handler-view');
+  wrap.style.display='flex';
+
+  if(!scheduleItems.length){
+    wrap.innerHTML=`<div class="mh-cell-selector">
+      <span class="panel-title" style="margin:0;">No schedule loaded.</span>
+      <span style="font-size:12px;color:var(--text-muted);">Ask the area leader to save a schedule first, or load one from Saved Schedules.</span>
+    </div>`;
+    return;
+  }
+
+  // Initialize check state
+  scheduleItems.forEach((_,idx)=>{if(!mhCheckState[idx])mhCheckState[idx]={done:false,comment:''};});
+
+  if(cfg.showBoxGroups){
+    renderBoxHandlerView(cfg);
+  } else {
+    renderMatHandlerTable(role,cfg);
+  }
+}
+
+function renderBoxHandlerView(cfg){
+  const wrap=document.getElementById('mat-handler-view');
+  const groups=[];
+  let curGroup={baseSkus:[],totalBoxes:0,totalQty:0,items:[]};
+
+  scheduleItems.forEach((it,idx)=>{
+    const isNewCO=idx>0&&baseSku(scheduleItems[idx].sku)!==baseSku(scheduleItems[idx-1].sku);
+    if(isNewCO&&curGroup.items.length){
+      groups.push({...curGroup});
+      curGroup={baseSkus:[],totalBoxes:0,totalQty:0,items:[]};
+    }
+    const bs=baseSku(it.sku);
+    if(!curGroup.baseSkus.includes(bs)) curGroup.baseSkus.push(bs);
+    const boxNeed=it.boxes==='have_all'?0:parseInt(it.boxes.replace('need_',''))||0;
+    curGroup.totalBoxes+=boxNeed;
+    curGroup.totalQty+=it.qty;
+    curGroup.items.push({...it,idx,boxNeed});
+  });
+  if(curGroup.items.length) groups.push(curGroup);
+
+  const totalBoxes=groups.reduce((s,g)=>s+g.totalBoxes,0);
+
+  let html=`<div class="mh-cell-selector">
+    <span style="font-size:13px;font-weight:600;">📦 Box Handler — ${cellName}</span>
+    <span class="meta-chip">${groups.length} changeover group${groups.length!==1?'s':''}</span>
+    <span class="meta-chip" style="color:var(--yellow);">Total boxes needed: ${totalBoxes}</span>
+  </div>
+  <div class="mh-table-wrap"><table class="mh-table">
+    <thead><tr>
+      <th>SKU Family</th><th>Total Qty</th><th>Boxes Needed</th><th>Done</th><th>Note</th>
+    </tr></thead><tbody>`;
+
+  groups.forEach((g,gi)=>{
+    const gKey=`g${gi}`;
+    if(!mhCheckState[gKey]) mhCheckState[gKey]={done:false,comment:''};
+    const isDone=mhCheckState[gKey].done;
+    const needText=g.totalBoxes>0?`<span class="${isDone?'':'mh-need'}">Need ${g.totalBoxes}</span>`:'<span class="mh-have">✓ Have All</span>';
+
+    // Group header — one row per changeover group, color variants collapsed
+    html+=`<tr class="mh-co-row${isDone?' mh-done':''}">
+      <td><span class="mh-box-group">${g.baseSkus.join(' · ')}</span>
+        <span style="font-size:10px;color:var(--text-dim);margin-left:8px;">${g.items.length} color${g.items.length!==1?'s':''}</span>
+      </td>
+      <td class="mh-qty">×${g.totalQty}</td>
+      <td>${needText}</td>
+      <td><input type="checkbox" class="mh-check" ${isDone?'checked':''} onchange="mhToggle('${gKey}',this.checked)"></td>
+      <td><input type="text" class="mh-comment" placeholder="Note…" value="${mhCheckState[gKey].comment||''}" oninput="mhComment('${gKey}',this.value)"></td>
+    </tr>`;
+  });
+
+  html+=`</tbody></table></div>`;
+  wrap.innerHTML=html;
+}
+
+function renderMatHandlerTable(role,cfg){
+  const wrap=document.getElementById('mat-handler-view');
+  const totalNeed=scheduleItems.filter(it=>it[cfg.field]&&it[cfg.field]!=='have_all').length;
+
+  let html=`<div class="mh-cell-selector">
+    <span style="font-size:13px;font-weight:600;">${cfg.col} Handler — ${cellName}</span>
+    <span class="meta-chip">${totalNeed} item${totalNeed!==1?'s':''} with shortages</span>
+  </div>
+  <div class="mh-table-wrap"><table class="mh-table">
+    <thead><tr><th>#</th><th>SKU</th><th>Qty</th><th>${cfg.col}</th><th>Due</th><th>Done</th><th>Note</th></tr></thead>
+    <tbody>`;
+
+  scheduleItems.forEach((it,idx)=>{
+    const isNewCO=idx>0&&baseSku(scheduleItems[idx].sku)!==baseSku(scheduleItems[idx-1].sku);
+    const val=it[cfg.field];
+    const isDone=mhCheckState[idx]?.done;
+    const matHtml=isDone
+      ?'<span class="mh-have">✓ Done</span>'
+      :val&&val!=='have_all'
+        ?`<span class="mh-need">Need ${val.replace('need_','')}</span>`
+        :'<span class="mh-have">✓ Have All</span>';
+    const dueCls=isDueOverdue(it.dueDate)?'overdue':isDueSoon(it.dueDate)?'soon':'';
+    html+=`<tr class="${isNewCO?'mh-co-row':''}${isDone?' mh-done':''}">
+      <td style="color:var(--text-dim);font-size:11px;">${idx+1}</td>
+      <td class="mh-sku">${it.sku}</td>
+      <td class="mh-qty">×${it.qty}</td>
+      <td>${matHtml}</td>
+      <td style="font-size:11px;color:var(--text-muted);" class="${dueCls}">${it.dueDate||'—'}</td>
+      <td><input type="checkbox" class="mh-check" ${isDone?'checked':''} onchange="mhToggle(${idx},this.checked)"></td>
+      <td><input type="text" class="mh-comment" placeholder="Note…" value="${mhCheckState[idx]?.comment||''}" oninput="mhComment(${idx},this.value)"></td>
+    </tr>`;
+  });
+
+  html+=`</tbody></table></div>`;
+  wrap.innerHTML=html;
+}
+
+function mhToggle(idx,checked){
+  if(!mhCheckState[idx]) mhCheckState[idx]={done:false,comment:''};
+  mhCheckState[idx].done=checked;
+  const role=activeViewAs||currentUser.role;
+  const cfg=MAT_HANDLER_CONFIG[role];
+  if(cfg){if(cfg.showBoxGroups)renderBoxHandlerView(cfg);else renderMatHandlerTable(role,cfg);}
+}
+function mhComment(idx,val){
+  if(!mhCheckState[idx]) mhCheckState[idx]={done:false,comment:''};
+  mhCheckState[idx].comment=val;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  RENDER SCHEDULE
+// ══════════════════════════════════════════════════════════════════
+function render(){
+  const list=document.getElementById('schedule-list');
+  const empty=document.getElementById('empty-state');
+  const meta=document.getElementById('sched-meta');
+
+  if(!scheduleItems.length){
+    list.innerHTML='';empty.style.display='block';meta.style.display='none';
+    document.getElementById('print-tbody').innerHTML='';
+    updateTotals();return;
+  }
+  empty.style.display='none';meta.style.display='flex';
+  document.getElementById('meta-cell').textContent='📍 '+cellName+' — '+currentUser.campus;
+  document.getElementById('meta-count').textContent=scheduleItems.length+' SKU'+(scheduleItems.length!==1?'s':'');
+
+  // If in material handler view, re-render that instead
+  const viewRole=activeViewAs||currentUser.role;
+  const isMatRole=['box_handler','lumber_handler','hardware_handler','bending_handler','slings_handler'].includes(viewRole);
+  if(isMatRole){
+    list.style.display='none';
+    showMatHandlerView(viewRole);
+  } else {
+    list.style.display='';
+    document.getElementById('mat-handler-view').style.display='none';
+
+  const html=[];
+  scheduleItems.forEach((it,idx)=>{
+    // Changeover divider
+    if(idx>0&&baseSku(scheduleItems[idx].sku)!==baseSku(scheduleItems[idx-1].sku)){
+      html.push('<div class="changeover-divider"></div>');
+    }
+
+    const cls=['sku-card'];
+    if(it.mustShip)cls.push('must-ship');
+    if(it.orderType==='warranty')cls.push('is-warranty');
+    if(it.orderType==='replacement')cls.push('is-replacement');
+
+    const badges=[];
+    if(it.mustShip)badges.push('<span class="badge b-ship">🚨 Must Ship</span>');
+    if(it.orderType==='warranty')badges.push('<span class="badge b-warranty">⚙ Warranty</span>');
+    if(it.orderType==='replacement')badges.push('<span class="badge b-replacement">↺ Full Repl.</span>');
+    if(it.merged)badges.push('<span class="badge b-merged">⊕ Merged</span>');
+    const shortage=[it.boxes,it.hardware,it.lumber,it.showSlings?it.slings:null,it.showBentParts?it.bentParts:null].some(v=>v&&v!=='have_all');
+    if(shortage)badges.push('<span class="badge b-shortage">⚠ Shortage</span>');
+
+    const dueCls='due-pill'+(isDueOverdue(it.dueDate)?' overdue':isDueSoon(it.dueDate)?' soon':'');
+    const qtyLabel=it.qty+(it.qty!==it.totalQty?` <span style="font-size:9px;color:var(--text-dim);">(${it.totalQty} tot)</span>`:'');
+
+    // Source cell tag — only show when multiple variants present
+    let srcTags=(it.sourceCells&&it.sourceCells.length>1)
+      ?it.sourceCells.map(s=>`<span class="source-tag">${s}</span>`).join('')
+      :(variantSources.length>1&&it.sourceCell)
+        ?`<span class="source-tag">${it.sourceCell}</span>`
+        :'';
+    if(it.sourceSystem==='warranty'){
+      srcTags+=` <span class="warranty-source-tag">Warranty System</span>`;
+    }
+
+    // Order display — merged cards show each order with a remove button
+    let orderDisplay;
+    if(it.merged&&it.orderBreakdown&&it.orderBreakdown.length>1){
+      orderDisplay=it.orderBreakdown.map((ob,oi)=>
+        ob.orderNum
+          ?`<span class="order-chip"><a href="#">${ob.orderNum}</a> ×${ob.qty} ${it.lockedSource?'':'<button class="order-remove-btn" onclick="removeOrder('+idx+','+oi+')" title="Remove this order">✕</button>'}</span>`
+          :`<span class="order-chip">—</span>`
+      ).join('');
+    } else {
+      orderDisplay=it.orderNums.length?it.orderNums.map(o=>`<a href="#">${o}</a>`).join(', '):'—';
+    }
+
+    html.push(`<div class="${cls.join(' ')}" draggable="true" data-idx="${idx}"
+ondragstart="onDS(event,${idx})" ondragover="onDO(event,${idx})"
+ondrop="onDP(event,${idx})" ondragleave="onDL(event)" ondragend="onDE(event)">
+<div class="card-row">
+  <span class="card-drag">⠿</span>
+<div class="card-sku">
+  <div class="card-sku-name">${it.sku} ${srcTags}</div>
+  ${it.description ? `<div class="card-sku-desc">${it.description}</div>` : ''}
+  <div class="card-sku-order">${orderDisplay}</div>
+</div>
+  <div class="card-badges">${badges.join('')}</div>
+  <div class="card-right">
+    ${it.dueDate?`<span class="${dueCls}">📅 ${it.dueDate}</span>`:''}
+    <span class="qty-pill">×${qtyLabel}</span>
+    <span class="takt-pill">⏱ ${it.taktStr}</span>
+  </div>
+</div>
+<div class="card-mats">
+  <div class="mat-group"><label>Boxes</label>
+    <select class="${matCls(it.boxes)}" onchange="setMat(${idx},'boxes',this)">${buildOpts(it.boxes,it.qty)}</select>
+    ${matPrint('Boxes',it.boxes)}</div>
+  <div class="mat-group"><label>Hardware</label>
+    <select class="${matCls(it.hardware)}" onchange="setMat(${idx},'hardware',this)">${buildOpts(it.hardware,it.qty)}</select>
+    ${matPrint('Hardware',it.hardware)}</div>
+  <div class="mat-group"><label>Lumber</label>
+    <select class="${matCls(it.lumber)}" onchange="setMat(${idx},'lumber',this)">${buildOpts(it.lumber,it.qty)}</select>
+    ${matPrint('Lumber',it.lumber)}</div>
+  <div class="mat-div"></div>
+  <button class="tog-btn ${it.showSlings?'on':''}" onclick="tog(${idx},'showSlings')">${it.showSlings?'✓':'+'} Slings</button>
+  ${it.showSlings?`<div class="mat-group"><label>Slings</label>
+    <select class="${matCls(it.slings)}" onchange="setMat(${idx},'slings',this)">${buildOpts(it.slings,it.qty)}</select>
+    ${matPrint('Slings',it.slings)}</div>`:''}
+  <button class="tog-btn ${it.showBentParts?'on':''}" onclick="tog(${idx},'showBentParts')">${it.showBentParts?'✓':'+'} Bent Parts</button>
+  ${it.showBentParts?`<div class="mat-group"><label>Bent Parts</label>
+    <select class="${matCls(it.bentParts)}" onchange="setMat(${idx},'bentParts',this)">${buildOpts(it.bentParts,it.qty)}</select>
+    ${matPrint('Bent Parts',it.bentParts)}</div>`:''}
+</div>
+</div>`);
+  });
+  list.innerHTML=html.join('');
+  } // end else (non-mat-handler view)
+  buildPrintTable();
+  updateTotals();
+}
+
+function setMat(idx,field,sel){
+  scheduleItems[idx][field]=sel.value;
+  sel.className=matCls(sel.value);
+  const nxt=sel.nextElementSibling;
+  const lblMap={boxes:'Boxes',hardware:'Hardware',lumber:'Lumber',slings:'Slings',bentParts:'Bent Parts'};
+  if(nxt&&nxt.classList.contains('print-mat'))nxt.outerHTML=matPrint(lblMap[field],sel.value);
+  markUnsaved();updateTotals();
+}
+function tog(idx,field){scheduleItems[idx][field]=!scheduleItems[idx][field];render();}
+
+function removeOrder(cardIdx,orderIdx){
+  const it=scheduleItems[cardIdx];
+  if(!it.orderBreakdown||it.orderBreakdown.length<=1){
+    // Only one order — remove whole card
+    if(!confirm('Remove this SKU from the schedule?'))return;
+    scheduleItems.splice(cardIdx,1);render();markUnsaved();return;
+  }
+  const removed=it.orderBreakdown[orderIdx];
+  it.orderBreakdown.splice(orderIdx,1);
+  // Subtract qty and takt
+  it.qty=Math.max(0,it.qty-removed.qty);
+  it.totalQty=Math.max(0,it.totalQty-removed.qty);
+  it.taktMins=Math.max(0,it.taktMins-removed.taktMins);
+  it.taktStr=fmtTakt(it.taktMins);
+  it.orderNums=it.orderBreakdown.map(o=>o.orderNum).filter(Boolean);
+  it.merged=it.orderBreakdown.length>1;
+  if(it.qty<=0){scheduleItems.splice(cardIdx,1);}
+  render();markUnsaved();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  DRAG & DROP
+// ══════════════════════════════════════════════════════════════════
+function onDS(e,i){dragSrcIndex=i;e.currentTarget.classList.add('dragging');e.dataTransfer.effectAllowed='move';}
+function onDO(e,i){e.preventDefault();document.querySelectorAll('.sku-card').forEach(c=>c.classList.remove('drag-over'));if(i!==dragSrcIndex)e.currentTarget.classList.add('drag-over');}
+function onDL(e){e.currentTarget.classList.remove('drag-over');}
+function onDP(e,i){e.preventDefault();if(dragSrcIndex===null||dragSrcIndex===i)return;const m=scheduleItems.splice(dragSrcIndex,1)[0];scheduleItems.splice(i,0,m);dragSrcIndex=null;render();markUnsaved();}
+function onDE(){document.querySelectorAll('.sku-card').forEach(c=>c.classList.remove('dragging','drag-over'));dragSrcIndex=null;}
+
+// ══════════════════════════════════════════════════════════════════
+//  SAVE / PRINT LOGIC
+// ══════════════════════════════════════════════════════════════════
+function scheduleStateStr(){return JSON.stringify(scheduleItems.map(it=>({...it})));}
+function markUnsaved(){
+  const el=document.getElementById('meta-saved');
+  if(scheduleItems.length){el.style.display='inline';el.textContent='💾 Unsaved';}
+}
+function markSaved(){
+  lastSavedState=scheduleStateStr();
+  const el=document.getElementById('meta-saved');
+  el.textContent='✓ Saved';
+}
+function hasUnsavedChanges(){return lastSavedState===null||scheduleStateStr()!==lastSavedState;}
+
+document.getElementById('btn-print').addEventListener('click',()=>{
+  if(hasUnsavedChanges()){
+    pendingPrintAfterSave=true;
+    openSaveModal();
+    toast('Save first to print','info');
+  } else {
+    window.print();
+  }
+});
+
+function openSaveModal(){
+  document.getElementById('save-as-name').textContent=currentUser.name;
+  document.getElementById('save-as-cell').textContent=cellName;
+  document.getElementById('modal-save').classList.add('open');
+}
+
+document.getElementById('btn-save').addEventListener('click',openSaveModal);
+document.getElementById('btn-save-cancel').addEventListener('click',()=>{
+  pendingPrintAfterSave=false;
+  closeModal('modal-save');
+});
+document.getElementById('btn-save-confirm').addEventListener('click',doSave);
+
+async function doSave(){
+  const btn=document.getElementById('btn-save-confirm');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving…';
+  try{
+    const schedulePayload = {
+      cell_name: cellName,
+      campus: currentUser.campus,
+      created_by: currentUser.name,
+      created_at: new Date().toISOString()
+    };
+    // During login-bypass mode, avoid writing a fake employee_id unless your Supabase table requires it.
+    if (currentUser.id && !currentUser.isTemporaryUser) {
+      schedulePayload.employee_id = currentUser.id;
+    }
+    const [row]=await sb('sts_schedules?select=id','POST',schedulePayload);
+    savedScheduleId=row.id;
+    const items=scheduleItems.map((it,idx)=>({
+      schedule_id:row.id,
+sku:it.sku,
+inventory_id:it.inventoryId || it.sku || null,
+line_description:it.description || null,
+quantity:it.qty,
+takt_minutes:it.taktMins,
+      due_date:it.dueDate,must_ship:it.mustShip,order_number:it.orderNums[0]||null,
+      order_type:it.orderType,sort_order:idx,
+      boxes_needed:it.boxes,hardware_needed:it.hardware,lumber_needed:it.lumber,
+      slings_needed:it.showSlings?it.slings:null,bent_parts_needed:it.showBentParts?it.bentParts:null,
+    }));
+    await sb('sts_schedule_items','POST',items);
+    const hist=scheduleItems.filter(it=>it.orderNums.length).flatMap(it=>it.orderNums.map(on=>({
+      schedule_id:row.id,order_number:on,sku:it.sku,
+      boxes_needed:it.boxes,hardware_needed:it.hardware,lumber_needed:it.lumber,
+      created_at:new Date().toISOString()
+    })));
+    if(hist.length) await sb('sts_schedule_history','POST',hist);
+    closeModal('modal-save');
+    markSaved();
+    toast('Schedule saved!','ok');
+    if(pendingPrintAfterSave){pendingPrintAfterSave=false;setTimeout(()=>window.print(),300);}
+  }catch(e){toast('Save failed: '+e.message,'err');}
+  finally{btn.disabled=false;btn.innerHTML='💾 Save & Continue';}
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  PARSE BUTTON & CLEAR
+// ══════════════════════════════════════════════════════════════════
+// Extract base cell number for variant detection: "Cell 52 - UNN3772" -> 52
+function baseCellNum(cn){
+  const m=cn.match(/Cell\s+(\d+)/i)||cn.match(/Euro\s+(\d+)/i);
+  return m?parseInt(m[1]):null;
+}
+// Check if two cell names are variants of the same base cell
+function areCellVariants(a,b){
+  if(a===b) return false; // same cell, not a variant
+  const na=baseCellNum(a),nb=baseCellNum(b);
+  return na!==null&&nb!==null&&na===nb;
+}
+
+document.getElementById('btn-load-warranty').addEventListener('click',loadWarrantiesManual);
+document.getElementById('btn-load-warranty-current').addEventListener('click',loadWarrantiesManual);
+
+async function loadWarrantiesManual(){
+  if(!cellName){toast('Parse a schedule first','info');return;}
+  try{
+    const warrantyItems=await loadWarrantyItemsForCell(cellName);
+    if(!warrantyItems.length){toast('No warranty items assigned to '+cellName,'info');return;}
+    const before=scheduleItems.length;
+    scheduleItems=mergeWarrantyItems(scheduleItems,warrantyItems);
+    const added=scheduleItems.length-before;
+    if(!added){toast('Warranty items already loaded','info');return;}
+    render();
+    markUnsaved();
+    toast(`Added ${added} warranty item${added!==1?'s':''} for ${cellName}`,'ok');
+  }catch(e){
+    toast('Failed to load warranties: '+e.message,'err');
+  }
+}
+
+
+document.getElementById('btn-parse').addEventListener('click',async()=>{
+  const raw=document.getElementById('raw-input').value.trim();
+  const errEl=document.getElementById('parse-error');
+  errEl.style.display='none';
+  if(!raw){errEl.textContent='⚠ Paste data first.';errEl.style.display='block';return;}
+  try{
+    const result=parseRaw(raw);
+console.log('Parsed cell name:', result.cellName);
+console.log('baseCellNum result:', baseCellNum(result.cellName));
+    if(!result.items.length){errEl.textContent='⚠ No SKUs found.';errEl.style.display='block';return;}
+
+    const parsedCell=result.cellName;
+
+    // Check if this is a variant of an already-loaded cell
+    const isVariant=scheduleItems.length>0&&(cellName===parsedCell||areCellVariants(cellName,parsedCell));
+
+    if(scheduleItems.length>0&&!isVariant){
+      // Completely different cell — confirm replace
+      if(!confirm(`You have a schedule for ${cellName} loaded. Replace with ${parsedCell}?`))return;
+      scheduleItems=[];variantSources=[];
+    }
+
+    // Add this parse as a new variant source
+    variantSources.push({cellName:parsedCell,items:result.items});
+
+    if(scheduleItems.length===0){
+      // First paste — load Sabertooth items, then pull assigned warranty items for this cell.
+cellName=parsedCell;
+      scheduleItems=result.items;
+    } else {
+      // Additional variant — append to existing items, then pull assigned warranty items for the parsed cell.
+scheduleItems=[...scheduleItems,...result.items];
+      // Update cell name to base if variants
+      const baseNum=baseCellNum(cellName);
+      if(baseNum) cellName='Cell '+String(baseNum).padStart(2,'0')+' (combined)';
+    }
+
+    savedScheduleId=null;lastSavedState=null;
+    mhCheckState={}; // clear handler completion state for new schedule
+    document.getElementById('raw-input').value='';
+    document.getElementById('paste-panel').style.display='none';
+    updateVariantButtons();
+    render();markUnsaved();
+    toast(`Parsed ${result.items.length} SKU${result.items.length!==1?'s':''} — ${parsedCell}`,'ok');
+  }catch(e){errEl.textContent='⚠ '+e.message;errEl.style.display='block';console.error(e);}
+});
+
+function openAddVariant(){
+  // Show the paste panel again without clearing existing items
+  document.getElementById('paste-panel').style.display='block';
+  document.getElementById('raw-input').value='';
+  document.getElementById('raw-input').focus();
+  document.getElementById('parse-error').style.display='none';
+  window.scrollTo({top:0,behavior:'smooth'});
+  toast('Paste the next variant\'s data and click Parse','info');
+}
+
+function combineVariants(){
+  if(variantSources.length<2){toast('Need at least 2 variants to combine','info');return;}
+  // Re-merge across variants: same SKU+color+dueDate combines even across sources
+  const allItems=[...scheduleItems];
+  const combined=[];
+  allItems.forEach(it=>{
+    const ex=combined.find(m=>m.sku===it.sku&&m.dueDate===it.dueDate);
+    if(ex){
+      ex.qty+=it.qty;
+      ex.totalQty+=it.totalQty;
+      ex.taktMins+=it.taktMins;
+      ex.taktStr=fmtTakt(ex.taktMins);
+      ex.orderNums=[...new Set([...ex.orderNums,...it.orderNums])];
+      ex.mustShip=ex.mustShip||it.mustShip;
+      ex.merged=true;
+      ex.orderBreakdown.push(...it.orderBreakdown);
+      // Track all source cells
+      if(!ex.sourceCells.includes(it.sourceCell)) ex.sourceCells.push(it.sourceCell);
+    } else {
+      combined.push({...it,sourceCells:[it.sourceCell]});
+    }
+  });
+  scheduleItems=combined;
+  // Build combined cell name from base number
+  const baseNum=baseCellNum(variantSources[0].cellName);
+  cellName='Cell '+String(baseNum).padStart(2,'0')+' (combined)';
+  render();markUnsaved();
+  toast(`Combined ${variantSources.length} variants — ${scheduleItems.length} unique SKU groups`,'ok');
+  document.getElementById('btn-combine-variants').style.display='none';
+}
+
+function updateVariantButtons(){
+  // Show/hide "Add Another Variant" and "Combine Variants" buttons
+  const addBtn=document.getElementById('btn-add-variant');
+  const combBtn=document.getElementById('btn-combine-variants');
+  if(addBtn) addBtn.style.display=scheduleItems.length?'inline-flex':'none';
+  if(combBtn) combBtn.style.display=variantSources.length>1?'inline-flex':'none';
+}
+
+document.getElementById('btn-clear').addEventListener('click',()=>{
+  if(!confirm('Clear current schedule?'))return;
+  scheduleItems=[];cellName='';savedScheduleId=null;lastSavedState=null;variantSources=[];
+  document.getElementById('paste-panel').style.display='block';
+  document.getElementById('meta-saved').style.display='none';
+  document.getElementById('sched-meta').style.display='none';
+  updateVariantButtons();
+  render();
+});
+
+// ══════════════════════════════════════════════════════════════════
+//  SAVED SCHEDULES
+// ══════════════════════════════════════════════════════════════════
+document.getElementById('btn-load-saved').addEventListener('click',async()=>{
+  const p=document.getElementById('saved-panel');
+  if(p.style.display==='block'){p.style.display='none';return;}
+  p.style.display='block';
+  const list=document.getElementById('saved-list');
+  list.innerHTML='<span style="color:var(--text-muted);font-size:12px;">Loading…</span>';
+  try{
+    // Area leaders only see their own; supervisors/admins/managers see all
+    const canSeeAll=['supervisor','manager','admin'].includes(currentUser.role);
+    const filter=canSeeAll
+      ?`sts_schedules?campus=eq.${currentUser.campus}&order=created_at.desc&limit=30&select=id,cell_name,created_by,created_at`
+      :`sts_schedules?campus=eq.${currentUser.campus}&employee_id=eq.${currentUser.id}&order=created_at.desc&limit=20&select=id,cell_name,created_by,created_at`;
+    const rows=await sb(filter);
+    if(!rows||!rows.length){list.innerHTML='<span style="color:var(--text-dim);font-size:12px;">No saved schedules yet.</span>';return;}
+    list.innerHTML=rows.map(r=>`<div class="saved-row">
+<div class="saved-row-left">
+  <span class="saved-cell">${r.cell_name}</span>
+  <span class="saved-time">${new Date(r.created_at).toLocaleString()}</span>
+  <span class="saved-by">by ${r.created_by}</span>
+</div>
+<div class="saved-row-right">
+  <button class="btn btn-ghost btn-xs" onclick="loadSchedule('${r.id}')">📂 Load</button>
+  ${canSeeAll||r.created_by===currentUser.name?`<button class="btn btn-danger btn-xs" onclick="deleteSchedule('${r.id}',this)">🗑</button>`:''}
+</div>
+</div>`).join('');
+  }catch(e){list.innerHTML='<span style="color:var(--red);font-size:12px;">'+e.message+'</span>';}
+});
+
+async function loadSchedule(id){
+  try{
+    const[sched]=await sb('sts_schedules?id=eq.'+id+'&select=*');
+    const items=await sb('sts_schedule_items?schedule_id=eq.'+id+'&order=sort_order.asc');
+    cellName=sched.cell_name;savedScheduleId=id;variantSources=[];
+    scheduleItems=items.map(it=>({
+      sku:it.sku,
+description:it.line_description || it.description || '',
+inventoryId:it.inventory_id || null,
+qty:it.quantity,
+totalQty:it.quantity,
+      taktMins:it.takt_minutes,taktStr:fmtTakt(it.takt_minutes),
+      dueDate:it.due_date,mustShip:it.must_ship,
+      orderNum:it.order_number,orderNums:[it.order_number].filter(Boolean),
+      orderBreakdown:[{orderNum:it.order_number,qty:it.quantity,taktMins:it.takt_minutes,dueDate:it.due_date}],
+      orderType:it.order_type,
+      sourceCell:sched.cell_name,sourceCells:[sched.cell_name],
+      boxes:it.boxes_needed||'have_all',hardware:it.hardware_needed||'have_all',
+      lumber:it.lumber_needed||'have_all',slings:it.slings_needed||'have_all',
+      bentParts:it.bent_parts_needed||'have_all',
+      showSlings:!!it.slings_needed,showBentParts:!!it.bent_parts_needed,merged:false,
+      sourceSystem:it.source_system||'sabertooth',
+      sourceRef:it.source_ref||null,
+      lockedSource:!!it.locked_source
+    }));
+lastSavedState=scheduleStateStr();
+    document.getElementById('paste-panel').style.display='none';
+    document.getElementById('saved-panel').style.display='none';
+    document.getElementById('meta-saved').textContent='✓ Loaded: '+sched.created_by;
+    document.getElementById('meta-saved').style.display='inline';
+    render();
+    toast(warrantyItems.length?`Loaded ${cellName} with ${warrantyItems.length} assigned warranty item${warrantyItems.length!==1?'s':''}`:'Loaded '+cellName,'ok');
+  }catch(e){toast('Load failed: '+e.message,'err');}
+}
+
+async function deleteSchedule(id,btn){
+  if(!confirm('Delete this schedule?'))return;
+  btn.disabled=true;
+  try{
+    await sb('sts_schedule_items?schedule_id=eq.'+id,'DELETE');
+    await sb('sts_schedules?id=eq.'+id,'DELETE');
+    toast('Deleted','info');
+    document.getElementById('btn-load-saved').click();
+    document.getElementById('btn-load-saved').click();
+  }catch(e){toast('Delete failed: '+e.message,'err');btn.disabled=false;}
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  HANDOFF
+// ══════════════════════════════════════════════════════════════════
+let handoffItems=[]; // {sku,orderNum,qty,dueDate,mustShip,orderType,removed}
+
+document.getElementById('btn-handoff').addEventListener('click',openHandoff);
+
+async function openHandoff(){
+  if(!scheduleItems.length&&!savedScheduleId){
+    toast('No schedule loaded to create a handoff from','info');return;
+  }
+  document.getElementById('modal-handoff').classList.add('open');
+  document.getElementById('handoff-sub').textContent=
+    'Cell: '+cellName+' — remove completed orders and adjust remaining quantities for the next shift.';
+  await loadHandoffItems();
+}
+
+async function loadHandoffItems(){
+  const listEl=document.getElementById('handoff-list');
+  const emptyEl=document.getElementById('handoff-empty');
+  listEl.innerHTML='<span style="color:var(--text-muted);font-size:12px;padding:8px;">Loading today\'s schedules…</span>';
+  emptyEl.style.display='none';
+
+  try{
+    // Get today's schedules for this cell by this user
+    const today=new Date();
+    today.setHours(0,0,0,0);
+    const rows=await sb(
+      `sts_schedules?cell_name=eq.${encodeURIComponent(cellName)}&employee_id=eq.${currentUser.id}&created_at=gte.${today.toISOString()}&order=created_at.desc&select=id,created_at&limit=10`
+    );
+
+    if(!rows||!rows.length){
+      // Fall back to currently loaded schedule items
+      if(scheduleItems.length){
+        handoffItems=scheduleItems.map(it=>({
+          sku:it.sku,
+          orderNum:it.orderNums[0]||null,
+          qty:it.qty,
+          origQty:it.qty,
+          dueDate:it.dueDate,
+          mustShip:it.mustShip,
+          orderType:it.orderType,
+          removed:false,
+        }));
+        renderHandoff();return;
+      }
+      listEl.innerHTML='';emptyEl.style.display='block';return;
+    }
+
+    // Use most recent save — get its items
+    const[latest]=rows;
+    const items=await sb('sts_schedule_items?schedule_id=eq.'+latest.id+'&order=sort_order.asc');
+    handoffItems=items.map(it=>({
+      sku:it.sku,
+      orderNum:it.order_number,
+      qty:it.quantity,
+      origQty:it.quantity,
+      dueDate:it.due_date,
+      mustShip:it.must_ship,
+      orderType:it.order_type,
+      boxes:it.boxes_needed||'have_all',
+      hardware:it.hardware_needed||'have_all',
+      lumber:it.lumber_needed||'have_all',
+      slings:it.slings_needed||null,
+      bentParts:it.bent_parts_needed||null,
+      removed:false,
+    }));
+    renderHandoff();
+  }catch(e){
+    // If query fails (e.g. no today filter match), fall back to current session
+    if(scheduleItems.length){
+      handoffItems=scheduleItems.map(it=>({
+        sku:it.sku,orderNum:it.orderNums[0]||null,
+        qty:it.qty,origQty:it.qty,
+        dueDate:it.dueDate,mustShip:it.mustShip,
+        orderType:it.orderType,
+        boxes:it.boxes||'have_all',
+        hardware:it.hardware||'have_all',
+        lumber:it.lumber||'have_all',
+        slings:it.showSlings?it.slings:null,
+        bentParts:it.showBentParts?it.bentParts:null,
+        removed:false,
+      }));
+      renderHandoff();
+    } else {
+      listEl.innerHTML=`<span style="color:var(--red);font-size:12px;">${e.message}</span>`;
+    }
+  }
+}
+
+function renderHandoff(){
+  const listEl=document.getElementById('handoff-list');
+  const totalEl=document.getElementById('handoff-total');
+  if(!handoffItems.length){
+    listEl.innerHTML='';
+    document.getElementById('handoff-empty').style.display='block';
+    totalEl.textContent='0';return;
+  }
+  document.getElementById('handoff-empty').style.display='none';
+
+  const active=handoffItems.filter(it=>!it.removed);
+  const totalUnits=active.reduce((s,it)=>s+it.qty,0);
+  totalEl.textContent=active.length+' SKU'+(active.length!==1?'s':'')+'  ·  '+totalUnits+' units';
+
+  listEl.innerHTML=handoffItems.map((it,idx)=>{
+    const dueCls='handoff-due'+(isDueOverdue(it.dueDate)?' overdue':isDueSoon(it.dueDate)?' soon':'');
+    const typeBadge=it.mustShip?'<span class="badge b-ship" style="font-size:8px;">Must Ship</span>':
+      it.orderType==='warranty'?'<span class="badge b-warranty" style="font-size:8px;">Warranty</span>':
+      it.orderType==='replacement'?'<span class="badge b-replacement" style="font-size:8px;">Repl.</span>':'';
+
+    // Material summary chips
+    function matChip(label,val){
+      if(!val||val==='have_all') return `<span class="handoff-mat-chip ok">${label}: ✓</span>`;
+      return `<span class="handoff-mat-chip need">${label}: Need ${val.replace('need_','')}</span>`;
+    }
+    const matsHtml=[
+      matChip('Boxes',it.boxes),
+      matChip('Hardware',it.hardware),
+      matChip('Lumber',it.lumber),
+      it.slings?matChip('Slings',it.slings):'',
+      it.bentParts?matChip('Bent Parts',it.bentParts):'',
+    ].filter(Boolean).join('');
+
+    // Material selects for adjustment
+    function matSel(field,val,max){
+      let opts=`<option value="have_all" ${val==='have_all'?'selected':''}>Have All</option>`;
+      for(let n=1;n<=Math.min(max||99,99);n++) opts+=`<option value="need_${n}" ${val===`need_${n}`?'selected':''}>Need ${n}</option>`;
+      return `<select class="handoff-mat-sel${val&&val!=='have_all'?' has-need':''}" onchange="setHandoffMat(${idx},'${field}',this)">${opts}</select>`;
+    }
+
+    return`<div class="handoff-row${it.removed?' removed':''}" id="hrow-${idx}">
+  <div style="flex:1;min-width:0;">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span class="handoff-sku">${it.sku}</span>${typeBadge}
+      ${it.dueDate?`<span class="${dueCls}">📅 ${it.dueDate}</span>`:''}
+    </div>
+    <div class="handoff-order">${it.orderNum||'—'}</div>
+    ${!it.removed?`<div class="handoff-mats" style="display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap;">
+      <span style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;">Materials:</span>
+      <div class="handoff-mat-group"><label>Boxes</label>${matSel('boxes',it.boxes,it.qty)}</div>
+      <div class="handoff-mat-group"><label>Hardware</label>${matSel('hardware',it.hardware,it.qty)}</div>
+      <div class="handoff-mat-group"><label>Lumber</label>${matSel('lumber',it.lumber,it.qty)}</div>
+      ${it.slings?`<div class="handoff-mat-group"><label>Slings</label>${matSel('slings',it.slings,it.qty)}</div>`:''}
+      ${it.bentParts?`<div class="handoff-mat-group"><label>Bent Parts</label>${matSel('bentParts',it.bentParts,it.qty)}</div>`:''}
+    </div>`:`<div style="margin-top:4px;font-size:10px;color:var(--text-dim);">${matsHtml}</div>`}
+  </div>
+  <div class="handoff-qty-wrap">
+    <span class="handoff-qty-label">Qty left:</span>
+    <input class="handoff-qty-input" type="number" min="0" max="${it.origQty}"
+      value="${it.qty}" ${it.removed?'disabled':''}
+      onchange="setHandoffQty(${idx},this.value)">
+  </div>
+  ${it.removed
+    ?`<button class="handoff-restore" onclick="restoreHandoff(${idx})">↩ Restore</button>`
+    :`<button class="handoff-remove" onclick="removeHandoff(${idx})">✓ Done</button>`
+  }
+</div>`;
+  }).join('');
+}
+
+function setHandoffQty(idx,val){
+  handoffItems[idx].qty=Math.max(0,Math.min(parseInt(val)||0,handoffItems[idx].origQty));
+  const totalEl=document.getElementById('handoff-total');
+  const active=handoffItems.filter(it=>!it.removed);
+  totalEl.textContent=active.length+' SKU'+(active.length!==1?'s':'')+'  ·  '+active.reduce((s,it)=>s+it.qty,0)+' units';
+}
+
+function setHandoffMat(idx,field,sel){
+  handoffItems[idx][field]=sel.value;
+  sel.className='handoff-mat-sel'+(sel.value&&sel.value!=='have_all'?' has-need':'');
+}
+
+function removeHandoff(idx){handoffItems[idx].removed=true;renderHandoff();}
+function restoreHandoff(idx){handoffItems[idx].removed=false;renderHandoff();}
+
+function printHandoff(){
+  const active=handoffItems.filter(it=>!it.removed);
+  if(!active.length){toast('No items to print','info');return;}
+
+  function esc(v){
+    return String(v ?? '').replace(/[&<>"']/g, ch => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[ch]));
+  }
+
+  const rows=active.map(it=>{
+    const type=it.mustShip?'Must Ship':it.orderType==='warranty'?'Warranty':it.orderType==='replacement'?'Full Repl.':'—';
+    const mats=[
+      ['Boxes',it.boxes],
+      ['Hardware',it.hardware],
+      ['Lumber',it.lumber],
+      it.slings?['Slings',it.slings]:null,
+      it.bentParts?['Bent Parts',it.bentParts]:null
+    ].filter(Boolean).map(([label,val])=>{
+      if(!val||val==='have_all')return esc(label)+': ✓';
+      return esc(label)+': <strong>Need '+esc(String(val).replace('need_',''))+'</strong>';
+    }).join(' &nbsp;|&nbsp; ');
+
+    return [
+      '<tr>',
+      '<td style="font-family:monospace;font-weight:600;">'+esc(it.sku)+'</td>',
+      '<td style="font-family:monospace;font-size:9pt;">'+esc(it.orderNum||'—')+'</td>',
+      '<td style="text-align:center;font-weight:700;font-size:13pt;">'+esc(it.qty)+'</td>',
+      '<td style="font-size:9pt;">'+esc(it.dueDate||'—')+'</td>',
+      '<td style="font-size:9pt;">'+esc(type)+'</td>',
+      '<td style="font-size:8pt;">'+mats+'</td>',
+      '</tr>'
+    ].join('');
+  }).join('');
+
+  const html=[
+    '<!DOCTYPE html><html><head><title>Handoff — '+esc(cellName)+'</title>',
+    '<style>',
+    'body{font-family:Arial,sans-serif;font-size:10pt;padding:16px;color:#000;}',
+    'h2{font-size:15pt;margin-bottom:2px;}',
+    '.sub{font-size:9pt;color:#555;margin-bottom:14px;}',
+    'table{width:100%;border-collapse:collapse;font-size:9pt;}',
+    'th{font-size:8pt;text-transform:uppercase;letter-spacing:.05em;color:#555;padding:5px 8px;text-align:left;border-bottom:2px solid #333;}',
+    'td{padding:5px 8px;border-bottom:1px solid #ddd;vertical-align:top;}',
+    'tr:last-child td{border-bottom:none;}',
+    '@media print{@page{margin:8mm;size:landscape;}}',
+    '<\/style><\/head><body>',
+    '<h2>Shift Handoff — '+esc(cellName)+'</h2>',
+    '<div class="sub">Prepared by '+esc(currentUser.name)+' &nbsp;·&nbsp; '+esc(new Date().toLocaleString())+' &nbsp;·&nbsp; '+active.length+' item'+(active.length!==1?'s':'')+' &nbsp;·&nbsp; '+active.reduce((s,it)=>s+it.qty,0)+' units remaining</div>',
+    '<table>',
+    '<thead><tr><th>SKU</th><th>Order #</th><th>Qty Left</th><th>Due Date</th><th>Type</th><th>Materials</th></tr></thead>',
+    '<tbody>'+rows+'</tbody>',
+    '</table>',
+    '<\/body><\/html>'
+  ].join('');
+
+  const win=window.open('','_blank','width=900,height=600');
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(()=>win.print(),400);
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  DASHBOARD
+// ══════════════════════════════════════════════════════════════════
+async function loadDashboard(){
+  try{
+    const scheds=await sb('sts_schedules?campus=eq.SY&order=created_at.desc&select=id,cell_name,created_by,created_at');
+    // De-duplicate: keep most recent per cell name
+    const latestByCell={};
+    scheds.forEach(s=>{if(!latestByCell[s.cell_name])latestByCell[s.cell_name]=s;});
+    const latestIds=Object.values(latestByCell).map(s=>s.id);
+
+    // Fetch items in batches of 50 to avoid URL length limits
+    let allItems=[];
+    if(latestIds.length){
+      const batchSize=50;
+      for(let b=0;b<latestIds.length;b+=batchSize){
+        const batch=latestIds.slice(b,b+batchSize);
+        const items=await sb('sts_schedule_items?schedule_id=in.('+batch.join(',')+')&select=schedule_id,takt_minutes');
+        allItems=allItems.concat(items||[]);
+      }
+    }
+
+    const taktBySchedule={};
+    allItems.forEach(it=>{taktBySchedule[it.schedule_id]=(taktBySchedule[it.schedule_id]||0)+parseFloat(it.takt_minutes||0);});
+
+    dashData={};
+
+    // Initialize all standard cells 1-58 (primary and secondary)
+    for(let n=1;n<=58;n++){
+      const numStr=String(n).padStart(2,'0');
+      const cn='Cell '+numStr;
+      const cns='Cell '+numStr+' - Secondary';
+      const bldg=cellBuilding(n);
+      dashData[cn]={cell:cn,mins:0,submitted:null,by:null,building:bldg,isSecondary:false};
+      dashData[cns]={cell:cns,mins:0,submitted:null,by:null,building:bldg,isSecondary:true};
+    }
+
+    // Fill in actual data from saved schedules
+    Object.values(latestByCell).forEach(s=>{
+      const mins=taktBySchedule[s.id]||0;
+      const isSecondary=/secondary/i.test(s.cell_name);
+      // Get building from base cell number
+      const baseNum=cellBaseNum(s.cell_name);
+      const bldg=baseNum?cellBuilding(baseNum):'Other';
+
+      if(dashData[s.cell_name]){
+        dashData[s.cell_name].mins=mins;
+        dashData[s.cell_name].submitted=s.created_at;
+        dashData[s.cell_name].by=s.created_by;
+      } else {
+        // Special cell (39a, 41-AD400, Euro, etc.) — add dynamically
+        dashData[s.cell_name]={cell:s.cell_name,mins,submitted:s.created_at,by:s.created_by,building:bldg,isSecondary};
+      }
+    });
+
+    renderDashboard();
+  }catch(e){toast('Dashboard error: '+e.message,'err');console.error(e);}
+}
+
+function renderDashboard(){
+  if(!dashData)return;
+  const bldgFilter=document.getElementById('dash-bldg-filter').value;
+  const secFilter=document.getElementById('dash-sec-filter').value;
+
+  let cells=Object.values(dashData);
+  if(bldgFilter!=='all') cells=cells.filter(c=>c.building===bldgFilter);
+  if(secFilter==='primary') cells=cells.filter(c=>!c.isSecondary);
+  if(secFilter==='secondary') cells=cells.filter(c=>c.isSecondary);
+
+  const totalMins=cells.reduce((s,c)=>s+c.mins,0);
+  const activeCells=cells.filter(c=>c.mins>0).length;
+  const maxMins=Math.max(...cells.map(c=>c.mins),1);
+  const avgMins=activeCells?totalMins/activeCells:0;
+
+  const statsEl=document.getElementById('dash-stats');
+  const totalHrs=(totalMins/60).toFixed(1);
+  const avgHrs=(avgMins/60).toFixed(1);
+  statsEl.innerHTML=`
+<div class="stat-card"><div class="stat-label">Total Hours Scheduled</div>
+  <div class="stat-val stat-accent">${totalHrs}h</div>
+  <div class="stat-sub">${bldgFilter==='all'?'All buildings':bldgFilter}</div></div>
+<div class="stat-card"><div class="stat-label">Active Cells</div>
+  <div class="stat-val stat-green">${activeCells}</div>
+  <div class="stat-sub">of ${cells.length} total</div></div>
+<div class="stat-card"><div class="stat-label">Avg Hours / Cell</div>
+  <div class="stat-val ${avgMins<240?'stat-green':avgMins<480?'stat-yellow':'stat-red'}">${avgHrs}h</div>
+  <div class="stat-sub">active cells only</div></div>
+<div class="stat-card"><div class="stat-label">No Schedule Yet</div>
+  <div class="stat-val stat-yellow">${cells.length-activeCells}</div>
+  <div class="stat-sub">cells at 0h</div></div>`;
+
+  if(cellChart) cellChart.destroy();
+  const ctx=document.getElementById('chart-cells').getContext('2d');
+  const sorted=[...cells].sort((a,b)=>a.cell.localeCompare(b.cell));
+  cellChart=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:sorted.map(c=>c.cell.replace(' - Secondary',' (S)')),
+      datasets:[{
+        label:'Hours',
+        data:sorted.map(c=>+(c.mins/60).toFixed(2)),
+        backgroundColor:sorted.map(c=>{
+          const h=c.mins/60;
+          if(h===0)return'rgba(42,50,72,0.6)';
+          if(h<4)return'rgba(34,197,94,0.7)';
+          if(h<8)return'rgba(234,179,8,0.7)';
+          return'rgba(239,68,68,0.7)';
+        }),
+        borderColor:sorted.map(c=>{
+          const h=c.mins/60;
+          if(h===0)return'rgba(42,50,72,1)';
+          if(h<4)return'rgba(34,197,94,1)';
+          if(h<8)return'rgba(234,179,8,1)';
+          return'rgba(239,68,68,1)';
+        }),
+        borderWidth:1,borderRadius:3,
+      }]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)}h`}}},
+      scales:{
+        x:{ticks:{color:'#6b7599',font:{size:9},maxRotation:90},grid:{color:'#1f2638'}},
+        y:{ticks:{color:'#6b7599',font:{size:10},callback:v=>v+'h'},grid:{color:'#1f2638'},beginAtZero:true}
+      }
+    }
+  });
+
+  // Building heat map — only primary cells for building totals
+  const bldgEl=document.getElementById('bldg-heat');
+  const bldgTotals={};
+  Object.entries(BUILDINGS).forEach(([k,v])=>{
+    const bCells=cells.filter(c=>c.building===k);
+    const mins=bCells.reduce((s,c)=>s+c.mins,0);
+    const active=bCells.filter(c=>c.mins>0).length;
+    bldgTotals[k]={mins,active,total:bCells.length||v.cells.length};
+  });
+  const maxBldgMins=Math.max(...Object.values(bldgTotals).map(b=>b.mins),1);
+  bldgEl.innerHTML=Object.entries(bldgTotals).map(([k,v])=>{
+    const hrs=(v.mins/60).toFixed(1);
+    const pct=Math.round(v.mins/maxBldgMins*100);
+    const col=v.mins===0?'bar-none':v.mins/60<4*v.total?'bar-green':v.mins/60<8*v.total?'bar-yellow':'bar-red';
+    return`<div class="bldg-card">
+<div class="bldg-name">${k}</div>
+<div class="bldg-hours ${v.mins===0?'cell-none':v.mins/60<4*v.total?'hours-green':v.mins/60<8*v.total?'hours-yellow':'hours-red'}">${hrs}h</div>
+<div class="bldg-cells">${v.active}/${v.total} cells active</div>
+<div class="bldg-bar"><div class="bldg-bar-fill ${col}" style="width:${pct}%"></div></div>
+</div>`;}).join('');
+
+  const tbody=document.getElementById('cell-tbody');
+  // Show each cell/variant as its own flat row, sorted by cell name
+  const rows=sorted.map(c=>{
+    const hrs=(c.mins/60).toFixed(1);
+    const pct=Math.round(c.mins/maxMins*100);
+    const hCls=c.mins===0?'cell-none':c.mins/60<4?'hours-green':c.mins/60<8?'hours-yellow':'hours-red';
+    const bCls=c.mins===0?'bar-none':c.mins/60<4?'bar-green':c.mins/60<8?'bar-yellow':'bar-red';
+    return`<tr>
+  <td class="cell-name">${c.cell}${c.isSecondary?'<span style="font-size:9px;color:var(--text-dim);margin-left:5px;">secondary</span>':''}</td>
+  <td class="cell-submitted" style="color:var(--text-muted)">${c.building}</td>
+  <td class="cell-hours ${hCls}">${c.mins>0?hrs+'h':'—'}</td>
+  <td><div class="cell-bar"><div class="cell-bar-fill ${bCls}" style="width:${pct}%"></div></div></td>
+  <td class="cell-submitted">${c.submitted?new Date(c.submitted).toLocaleString():'—'}</td>
+  <td class="cell-submitted">${c.by||'—'}</td>
+</tr>`;
+  });
+  tbody.innerHTML=rows.join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  USER MANAGEMENT
+// ══════════════════════════════════════════════════════════════════
+async function loadUsers(){
+  const tbody=document.getElementById('users-tbody');
+  tbody.innerHTML='<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:20px;">Loading…</td></tr>';
+  try{
+    const users=await sb('sts_employees?order=name.asc&select=id,name,role,campus,pin_hash,active,created_at');
+    allEmployees=users;
+    tbody.innerHTML=users.map(u=>`<tr>
+<td class="u-name">${u.name}</td>
+<td><span class="u-role role-${u.role}">${u.role.replace('_',' ')}</span></td>
+<td style="font-size:11px;color:var(--text-muted);">${u.campus}</td>
+<td><span style="font-size:11px;color:${u.pin_hash?'var(--green)':'var(--yellow)'};">${u.pin_hash?'✓ Set':'Not set'}</span></td>
+<td class="${u.active?'u-active':'u-inactive'}">${u.active?'Active':'Inactive'}</td>
+<td class="u-actions">
+  <button class="btn btn-ghost btn-xs" onclick="openEditUser('${u.id}')">Edit</button>
+  ${u.pin_hash?`<button class="btn btn-ghost btn-xs" onclick="resetPin('${u.id}','${u.name}')">Reset PIN</button>`:''}
+</td>
+</tr>`).join('');
+  }catch(e){tbody.innerHTML=`<tr><td colspan="6" style="color:var(--red);text-align:center;">${e.message}</td></tr>`;}
+}
+
+let editingUserId=null;
+function openAddUser(){
+  editingUserId=null;
+  document.getElementById('modal-user-title').textContent='Add Employee';
+  document.getElementById('modal-user-sub').textContent='New employees set their own PIN on first login.';
+  document.getElementById('u-name').value='';
+  document.getElementById('u-role').value='area_leader';
+  document.getElementById('u-campus').value='SY';
+  document.getElementById('u-active-group').style.display='none';
+  document.getElementById('btn-user-confirm').textContent='Add Employee';
+  document.getElementById('modal-user').classList.add('open');
+  setTimeout(()=>document.getElementById('u-name').focus(),100);
+}
+
+function openEditUser(id){
+  const u=allEmployees.find(e=>e.id===id);if(!u)return;
+  editingUserId=id;
+  document.getElementById('modal-user-title').textContent='Edit Employee';
+  document.getElementById('modal-user-sub').textContent='Update role, campus, or status.';
+  document.getElementById('u-name').value=u.name;
+  document.getElementById('u-role').value=u.role;
+  document.getElementById('u-campus').value=u.campus;
+  document.getElementById('u-active').value=String(u.active);
+  document.getElementById('u-active-group').style.display='block';
+  document.getElementById('btn-user-confirm').textContent='Save Changes';
+  document.getElementById('modal-user').classList.add('open');
+}
+
+document.getElementById('btn-user-confirm').addEventListener('click',async()=>{
+  const name=document.getElementById('u-name').value.trim();
+  const role=document.getElementById('u-role').value;
+  const campus=document.getElementById('u-campus').value;
+  const active=document.getElementById('u-active').value==='true';
+  if(!name){toast('Name is required','err');return;}
+  const btn=document.getElementById('btn-user-confirm');
+  btn.disabled=true;
+  try{
+    if(editingUserId){
+      await sb('sts_employees?id=eq.'+editingUserId,'PATCH',{name,role,campus,active},{prefer:'return=minimal'});
+      toast('Employee updated','ok');
+    } else {
+      await sb('sts_employees','POST',{name,role,campus,active:true});
+      toast('Employee added','ok');
+    }
+    closeModal('modal-user');loadUsers();
+  }catch(e){toast('Error: '+e.message,'err');}
+  finally{btn.disabled=false;}
+});
+
+async function resetPin(id,name){
+  if(!confirm(`Reset PIN for ${name}? They will need to set a new PIN on next login.`))return;
+  try{
+    await sb('sts_employees?id=eq.'+id,'PATCH',{pin_hash:null},{prefer:'return=minimal'});
+    toast('PIN reset for '+name,'ok');loadUsers();
+  }catch(e){toast('Error: '+e.message,'err');}
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  CHANGE PIN
+// ══════════════════════════════════════════════════════════════════
+function showChangePinModal(){
+  document.getElementById('pin-current').value='';
+  document.getElementById('pin-new').value='';
+  document.getElementById('pin-confirm').value='';
+  document.getElementById('change-pin-error').textContent='';
+  document.getElementById('modal-pin').classList.add('open');
+  setTimeout(()=>document.getElementById('pin-current').focus(),100);
+}
+
+async function doChangePin(){
+  const cur=document.getElementById('pin-current').value;
+  const nw=document.getElementById('pin-new').value;
+  const conf=document.getElementById('pin-confirm').value;
+  const errEl=document.getElementById('change-pin-error');
+  errEl.textContent='';
+  if(cur.length!==4||nw.length!==4||conf.length!==4){errEl.textContent='All PINs must be 4 digits.';return;}
+  if(nw!==conf){errEl.textContent='New PINs do not match.';return;}
+  const curHash=await hashPin(cur);
+  // Verify current PIN against DB
+  try{
+    const[emp]=await sb('sts_employees?id=eq.'+currentUser.id+'&select=pin_hash');
+    if(emp.pin_hash!==curHash){errEl.textContent='Current PIN is incorrect.';return;}
+    const newHash=await hashPin(nw);
+    await sb('sts_employees?id=eq.'+currentUser.id,'PATCH',{pin_hash:newHash},{prefer:'return=minimal'});
+    closeModal('modal-pin');toast('PIN updated successfully','ok');
+  }catch(e){errEl.textContent='Error: '+e.message;}
+}
+
+
+// ══════════════════════════════════════════════════════════════════
+//  WARRANTY QUEUE INTEGRATION
+// ══════════════════════════════════════════════════════════════════
+async function loadWarrantyItemsForCell(targetCellName){
+  try{
+    const n = baseCellNum(targetCellName);
+
+    // Detect a/b variant from cell name, e.g. "Cell 53a" → 'a', "Cell 53b" → 'b', "Cell 53" → null
+    const variantMatch = targetCellName.match(/Cell\s+\d+([ab])/i);
+    const variant = variantMatch ? variantMatch[1].toLowerCase() : null;
+
+    let rows = [];
+
+    if(n){
+      // Build filter: always match on cell number
+      let filter = `sts_warranty_queue?assigned_cell_num=eq.${n}&status=in.(assigned,scheduled)&select=*`;
+      rows = await sb(filter);
+
+      // If there's an a/b variant, filter to only rows where assigned_cell contains that letter
+      // This prevents 53a items showing on 53b and vice versa
+      if(variant && rows && rows.length){
+        rows = rows.filter(w => {
+          const ac = String(w.assigned_cell || '').toLowerCase();
+          // If the row's assigned_cell has an a/b suffix, it must match
+          const rowVariant = ac.match(/\d+([ab])/);
+          if(rowVariant) return rowVariant[1] === variant;
+          // If row has no variant suffix, show it on all variants of that cell
+          return true;
+        });
+      }
+    }
+
+    // String fallback for non-numeric areas (Hardware, Sewing, etc.)
+    if(!rows || !rows.length){
+      rows = await sb(
+        `sts_warranty_queue?assigned_cell=eq.${encodeURIComponent(targetCellName)}&status=in.(assigned,scheduled)&select=*`
+      );
+    }
+
+    return (rows || []).map(w => {
+      const takt = Number(w.takt_minutes || 0);
+      const qty = Number(w.quantity || 1);
+      const ref = w.warranty_order || w.id;
+      const partNumber = w.inventory_id || w.sku || 'UNKNOWN-PART';
+
+      return {
+        sku: partNumber,
+        inventoryId: w.inventory_id || null,
+        originalSku: w.sku || null,
+        description: w.line_description || '',
+        qty,
+        totalQty: qty,
+        taktMins: takt,
+        taktStr: fmtTakt(takt),
+        dueDate: w.due_date || null,
+        mustShip: !!w.must_ship,
+        orderNum: ref,
+        orderNums: [ref].filter(Boolean),
+        orderBreakdown: [{
+          orderNum: ref,
+          qty,
+          taktMins: takt,
+          dueDate: w.due_date || null
+        }],
+        orderType: w.order_type === 'replacement' ? 'replacement' : 'warranty',
+        sourceCell: w.assigned_cell || targetCellName,
+        sourceSystem: 'warranty',
+        sourceRef: w.id,
+        lockedSource: true,
+        boxes: 'have_all',
+        hardware: 'have_all',
+        lumber: 'have_all',
+        slings: 'have_all',
+        bentParts: 'have_all',
+        showSlings: false,
+        showBentParts: false,
+        merged: false
+      };
+    });
+  }catch(e){
+    console.warn('Warranty queue unavailable:', e);
+    toast('Warranty queue unavailable: ' + e.message, 'err');
+    return [];
+  }
+}
+
+function mergeWarrantyItems(existingItems,warrantyItems){
+  if(!warrantyItems.length)return existingItems;
+
+  const existingKeys = new Set(existingItems.flatMap(it =>
+    (it.orderNums&&it.orderNums.length?it.orderNums:[it.orderNum])
+      .filter(Boolean)
+      .map(o => String(o).toUpperCase())
+  ));
+
+  const newWarranty = warrantyItems.filter(w => {
+    const key = String(w.orderNum||'').toUpperCase();
+    return key && !existingKeys.has(key);
+  });
+
+  return [...existingItems,...newWarranty];
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  UTILITIES
+// ══════════════════════════════════════════════════════════════════
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+
+let toastTimer;
+function toast(msg,type='info'){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.className='show '+type;
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.className='',3200);
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════════
+(async()=>{
+  // Temporary bypass user.
+  // Replace this later with your final login provider.
+  currentUser = {
+    id: '00000000-0000-4000-8000-000000000000',
+    name: 'Scheduler',
+    role: 'admin',
+    campus: 'SY',
+    isTemporaryUser: true
+  };
+
+  bootApp();
+})();
+</script>
+</body>
+</html>
