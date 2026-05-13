@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>STS — Scheduling Team System</title>
+<title>STS — Syracuse (SY) — Scheduling Team System</title>
 <link rel="icon" href="data:,">  <!-- suppresses favicon 404 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="styles.css">
@@ -311,34 +311,13 @@
     </div>
   </div>
   <div class="sh-notice"><div><strong>Out of stock</strong> items are fully blocked. <strong>Low quantity</strong> items require supervisor approval before scheduling. Supervisors can mark components as restocked to remove them from this list.</div></div>
-  <!-- Lumber color key — shown only on lumber tabs -->
+  <!-- Lumber color key -->
   <div id="sh-lumber-key" style="display:none;padding:10px 24px 0;font-size:11px;color:var(--text-muted);line-height:1.7;">
     <strong style="color:var(--text);">Lumber Color Key</strong> — profile suffix → finished-good color codes:<br>
     A=AR &nbsp;·&nbsp; B=BL/CB &nbsp;·&nbsp; G=GR/RC &nbsp;·&nbsp; GY=GY/SS &nbsp;·&nbsp; LE=LE &nbsp;·&nbsp; LI=LI &nbsp;·&nbsp; LNV=LNV/NV &nbsp;·&nbsp; M=MA/VL &nbsp;·&nbsp; NDW=NDW &nbsp;·&nbsp; NKA=NKA &nbsp;·&nbsp; NTL=NTL &nbsp;·&nbsp; PB=PB &nbsp;·&nbsp; S=SA/SC &nbsp;·&nbsp; SR=SR &nbsp;·&nbsp; T=TE/TH &nbsp;·&nbsp; TA=TA &nbsp;·&nbsp; VCF=VCF &nbsp;·&nbsp; VSH=VSH &nbsp;·&nbsp; VWH=VWH &nbsp;·&nbsp; W=WH/CW
   </div>
   <div id="shortage-content"><div style="color:var(--text-dim);padding:40px;text-align:center;">Loading…</div></div>
 </div>
-
-
-
-<!-- ══ BLACKLIST PAGE (Supervisor+) ══ -->
-<div id="page-blacklist" class="page" style="display:none;">
-  <div class="blacklist-header">
-    <div class="blacklist-title">Order Blacklist</div>
-    <button class="btn btn-ghost btn-sm" onclick="loadBlacklistManager()">Refresh</button>
-  </div>
-  <div class="blacklist-panel">
-    <div style="font-size:var(--fs-sm);color:var(--text-muted);">Blocked orders are hidden from normal schedule controls and can only be managed by supervisors, managers, and admins.</div>
-    <div class="blacklist-add-row">
-      <input class="input" id="blacklist-order-input" placeholder="Enter order number to block" onkeydown="if(event.key==='Enter') addBlacklistOrder()">
-      <button class="btn btn-primary btn-sm" onclick="addBlacklistOrder()">Block Order</button>
-    </div>
-  </div>
-  <div class="blacklist-list" id="blacklist-list"><div style="color:var(--text-dim);padding:24px;">Loading...</div></div>
-</div>
-
-<!-- ══ DASHBOARD ══ -->
-<div id="page-dashboard" class="page" style="display:none;">
   <div class="dash-header">
     <div class="dash-title">Schedule Dashboard</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -556,10 +535,47 @@
   </div>
 </div>
 
+    <div class="field-group"><label class="field-label">SKU / Profile <span style="color:var(--red);">*</span></label><input class="input" id="modal-shortage-edit-sku" placeholder="e.g. PRCDCW22781BL" list="dl-shortage-skus" autocomplete="off"><datalist id="dl-shortage-skus"></datalist></div>
+    <div class="field-group"><label class="field-label">Category</label>
+      <select class="select" id="modal-shortage-edit-tab" onchange="_populateShortageDatalist(this.value)">
+        <option value="bent">Bent Parts (SY)</option>
+        <option value="lumber_sy">Lumber (SY)</option>
+        <option value="lumber_rx">Lumber (RX)</option>
+      </select>
+    </div>
+    <div class="field-group"><label class="field-label">Status</label>
+      <select class="select" id="modal-shortage-edit-status">
+        <option value="out_of_stock">Out of Stock — Blocked</option>
+        <option value="low_quantity">Low Quantity — Supervisor Approval Required</option>
+      </select>
+    </div>
+    <div class="field-group"><label class="field-label">Notes</label><input class="input" id="modal-shortage-edit-notes" placeholder="e.g. 2 skids in Lumber WIP"></div>
+    <div class="field-group"><label class="field-label">Campus</label>
+      <select class="select" id="modal-shortage-edit-campus">
+        <option value="SY">Syracuse (SY)</option>
+        <option value="RX">Roxboro (RX)</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger btn-xs" id="modal-shortage-edit-delete" onclick="deleteShortageEntry()" style="display:none;margin-right:auto;">Delete</button>
+      <button class="btn btn-ghost" onclick="closeModal('modal-shortage-edit')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveShortageEntry()">Save</button>
+    </div>
+  </div>
+</div>
 
+    <div class="modal-sub">This will remove <strong id="sh-restock-sku"></strong> from the shortage list. SKUs that were blocked or flagged will clear immediately.</div>
+    <div class="field-group"><label class="field-label">Note (optional)</label><input class="input" id="sh-restock-note" placeholder="e.g. Full pallet received from vendor"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-sh-restock')">Cancel</button>
+      <button class="btn btn-success" onclick="confirmShortageRestock()">Confirm Restocked</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast"></div>
 
+<script>window.CAMPUS_OVERRIDE = "SY";</script>
 <script src="config.js"></script>
 <script src="state.js"></script>
 <script src="supabase.js"></script>

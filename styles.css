@@ -110,8 +110,32 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
 .sched-actions{display:flex;gap:7px;flex-wrap:wrap;}
 
 /* ── SKU CARDS ── */
-#schedule-list{display:flex;flex-direction:column;gap:10px;}
-.sku-card{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;cursor:grab;user-select:none;transition:border-color .15s,box-shadow .15s;}
+#schedule-list{display:flex;flex-direction:column;gap:0;}
+
+/* Due-date group header — mirrors Sabertooth's "Due: Monday, May 11th, 2026" row */
+.due-group-header{
+  font-family:var(--sans);font-size:var(--fs-sm);font-weight:700;
+  color:var(--text-muted);
+  padding:18px 18px 8px;
+  letter-spacing:.04em;
+  border-top:1px solid var(--border);
+  margin-top:10px;
+}
+.due-group-header:first-child{margin-top:0;border-top:none;}
+.due-group-header.soon{color:var(--yellow);}
+.due-group-header.overdue{color:var(--red);}
+
+.sku-card{
+  background:var(--surface);
+  border:1px solid var(--border2);
+  border-left:4px solid var(--border2);
+  border-radius:var(--radius);
+  overflow:hidden;
+  cursor:grab;
+  user-select:none;
+  transition:border-color .15s,box-shadow .15s;
+  margin-bottom:10px;
+}
 .sku-card:active{cursor:grabbing;}
 .sku-card.dragging{opacity:.4;border-color:var(--accent);}
 .sku-card.drag-over{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim);}
@@ -121,31 +145,169 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
 .sku-card.is-supply-blocked{border-left:4px solid var(--red);opacity:.85;}
 .sku-card.is-grey-list{border-left:4px solid var(--yellow);opacity:.9;}
 
-.card-row{display:flex;align-items:center;padding:13px 18px;gap:14px;flex-wrap:wrap;}
-.card-drag{color:var(--text-dim);font-size:18px;cursor:grab;flex-shrink:0;}
-.card-sku{min-width:0;flex:0 0 auto;}
-/* SKU name: 25% bigger than base */
-.card-sku-name{font-family:var(--mono);font-size:19px;font-weight:700;color:var(--text);letter-spacing:.03em;}
-.card-sku-order{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-muted);margin-top:3px;}
-.card-sku-desc{font-size:var(--fs-xs);color:var(--text-muted);margin-top:3px;max-width:540px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.card-badges{display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex:1;min-width:0;}
-.card-right{display:flex;align-items:center;gap:10px;flex-shrink:0;margin-left:auto;}
+/* Top row: drag handle | SKU name + takt + badges | right-side qty */
+.card-row{
+  display:flex;
+  align-items:flex-start;
+  padding:14px 16px 10px;
+  gap:12px;
+}
+.card-drag{color:var(--text-dim);font-size:18px;cursor:grab;flex-shrink:0;padding-top:3px;}
 
-/* TAKT pill — larger, fits color scheme accent green */
-.takt-pill{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--green);background:var(--green-dim);padding:6px 13px;border-radius:var(--radius-sm);white-space:nowrap;border:2px solid var(--green2);letter-spacing:.03em;}
+/* Left block: SKU name line + order line */
+.card-sku{min-width:0;flex:1;}
 
-/* QTY pill */
+/* Top line inside card-sku: big SKU name + takt pill + badges all inline */
+.card-sku-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.card-sku-name{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--text);letter-spacing:.02em;white-space:nowrap;}
+.card-sku-desc{font-size:var(--fs-xs);color:var(--text-muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+
+/* Quantity row — big number like Sabertooth shows below the SKU name */
+.card-qty-row{display:flex;align-items:center;gap:10px;margin-top:8px;}
+.card-qty-big{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--text);line-height:1;}
+
+/* Order detail line at the bottom — mirrors "2 x TXR155CB  Order #: ED... (0/2)  May 8, 2026" */
+.card-sku-order{
+  font-family:var(--mono);
+  font-size:var(--fs-xs);
+  color:var(--text-muted);
+  margin-top:8px;
+  padding-top:8px;
+  border-top:1px dashed var(--border);
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px 14px;
+  align-items:center;
+}
+.card-order-item{display:inline-flex;align-items:center;gap:5px;}
+.card-order-num{color:var(--accent);}
+.card-order-date{color:var(--text-dim);}
+
+.card-badges{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+.card-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0;}
+
+/* TAKT pill — sits right next to the SKU name */
+.takt-pill{
+  font-family:var(--mono);font-size:16px;font-weight:700;
+  color:var(--green);background:var(--green-dim);
+  padding:5px 12px;border-radius:var(--radius-sm);
+  white-space:nowrap;border:2px solid var(--green2);
+  letter-spacing:.03em;
+}
+
+/* QTY pill — smaller secondary pill (kept for mat handler compat) */
 .qty-pill{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text);background:var(--surface2);padding:6px 13px;border-radius:var(--radius-sm);white-space:nowrap;border:1px solid var(--border);}
 
-/* Due date pill — 300% bigger (was 10-11px, now 32px equivalent display) */
-.due-pill{font-size:22px;font-weight:700;color:var(--text-muted);font-family:var(--mono);white-space:nowrap;padding:4px 0;}
+/* Due date — shown in due-group-header above card group */
+.due-pill{font-size:13px;font-weight:600;color:var(--text-muted);font-family:var(--mono);white-space:nowrap;}
 .due-pill.soon{color:var(--yellow);}
 .due-pill.overdue{color:var(--red);}
 
-/* Order type indicator — also large */
-.order-type-label{font-family:var(--mono);font-size:18px;font-weight:700;white-space:nowrap;}
+/* Order type indicator */
+.order-type-label{font-family:var(--mono);font-size:15px;font-weight:700;white-space:nowrap;}
 .order-type-warranty{color:var(--purple);}
 .order-type-replacement{color:var(--orange);}
+
+/* ── SKU card meta: prominent cell name ── */
+.meta-cell-name{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--text);letter-spacing:.04em;}
+.meta-campus{font-family:var(--mono);font-size:12px;color:var(--text-muted);margin-left:10px;padding:2px 8px;border-radius:4px;background:var(--surface3);border:1px solid var(--border2);}
+
+/* ── Quantity block ── */
+.card-qty-block{display:flex;align-items:baseline;gap:7px;margin-top:8px;}
+.card-qty-label{font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);border:1px solid var(--border2);border-radius:3px;padding:1px 5px;}
+.card-qty-big{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--text);line-height:1;}
+.card-qty-total{font-family:var(--mono);font-size:14px;color:var(--text-dim);margin-left:3px;}
+
+/* ── Orders toggle + panel ── */
+.card-orders-wrap{margin-top:8px;}
+.orders-toggle-btn{font-family:var(--mono);font-size:var(--fs-xs);padding:4px 11px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;color:var(--text-muted);cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
+.orders-toggle-btn:hover{border-color:var(--accent);color:var(--accent);}
+.orders-toggle-btn[aria-expanded="true"]{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+.orders-toggle-count{background:var(--surface3);border-radius:10px;padding:0 6px;font-size:10px;}
+.orders-panel{display:flex;flex-direction:column;gap:4px;margin-top:7px;padding:8px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border);}
+.order-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:5px 8px;border-radius:var(--radius-sm);background:var(--surface2);}
+.order-row.order-done{opacity:.45;text-decoration:line-through;}
+.order-row.order-blacklisted{border-left:3px solid var(--red);background:var(--red-dim);}
+.order-row-num{font-family:var(--mono);font-size:var(--fs-xs);font-weight:600;color:var(--accent);}
+.order-row-qty{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-muted);}
+.order-row-date{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-dim);}
+.order-row-actions{display:flex;gap:5px;margin-left:auto;}
+.order-act-btn{font-family:var(--mono);font-size:11px;padding:3px 9px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;color:var(--text-muted);cursor:pointer;transition:all .12s;}
+.order-act-btn:hover{background:var(--surface3);color:var(--text);}
+.order-act-btn.done{border-color:var(--green);color:var(--green);background:var(--green-dim);}
+.order-act-btn.remove{border-color:var(--red-dim);color:var(--red);}
+.order-act-btn.remove:hover{background:var(--red-dim);}
+.order-act-btn.blacklist{border-color:var(--yellow);color:var(--yellow);}
+.order-act-btn.blacklist.on{background:var(--yellow-dim);}
+
+/* ── Card done state ── */
+.sku-card.is-done{opacity:.55;}
+.sku-card.is-done .card-sku-name{text-decoration:line-through;color:var(--text-muted);}
+.b-done{background:#052010;color:var(--green);border:1px solid var(--green);}
+
+/* ── Card edit / remove buttons ── */
+.card-edit-btn,.card-remove-btn{font-family:var(--mono);font-size:11px;padding:4px 11px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;cursor:pointer;transition:all .12s;white-space:nowrap;}
+.card-edit-btn{color:var(--text-muted);}
+.card-edit-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+.card-remove-btn{color:var(--red);border-color:var(--red-dim);}
+.card-remove-btn:hover{background:var(--red-dim);}
+/* Inline must-ship toggle on card */
+.must-ship-toggle{display:flex;align-items:center;gap:5px;cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--text-muted);white-space:nowrap;padding:3px 0;}
+.must-ship-toggle input[type=checkbox]{accent-color:var(--red);cursor:pointer;width:13px;height:13px;}
+.must-ship-toggle:hover{color:var(--text);}
+
+/* ── Add item row ── */
+.add-item-row{padding:10px 2px;display:flex;}
+
+/* ── My Cells page ── */
+#page-mycells{padding:22px 26px;gap:14px;}
+.mycells-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.mycells-title{font-size:20px;font-weight:700;}
+.mycell-card-btn{font-family:var(--mono);font-size:var(--fs-xs);font-weight:700;padding:8px 14px;border-radius:var(--radius-sm);border:2px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;transition:all .15s;white-space:nowrap;}
+.mycell-card-btn:hover,.mycell-card-btn.active{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+.mycell-readonly{cursor:default;}
+.mycell-readonly:active{cursor:default;}
+/* Manage cells grid */
+.cell-pick-btn{font-family:var(--mono);font-size:12px;padding:7px 10px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);cursor:pointer;transition:all .12s;text-align:center;}
+.cell-pick-btn.selected{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);font-weight:700;}
+
+/* ── Edit card readonly display ── */
+.edit-card-readonly{font-family:var(--mono);font-size:var(--fs-base);font-weight:600;color:var(--text);background:var(--surface3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;}
+
+/* ── Mat handler table — order column + item rows ── */
+.mh-orders{font-family:var(--mono);font-size:11px;color:var(--accent);max-width:200px;word-break:break-all;}
+.mh-group-row td{background:var(--surface2);border-top:2px solid var(--border2);font-weight:700;}
+.mh-item-row td{font-size:var(--fs-xs);padding:6px 16px;}
+.mh-item-row.mh-done td{opacity:.4;text-decoration:line-through;}
+.mh-item-row.mh-done td:last-child{text-decoration:none;opacity:1;}
+
+/* ── Warranty Manager page ── */
+#page-warrantymgr{padding:22px 26px;gap:18px;overflow:auto;}
+.wm-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.wm-title{font-size:20px;font-weight:700;}
+.wm-section{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);padding:20px 22px;display:flex;flex-direction:column;gap:10px;}
+.wm-section-title{font-size:var(--fs-sm);font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);}
+.wm-section-sub{font-size:var(--fs-xs);color:var(--text-dim);}
+.wm-row{background:var(--surface2);border:1px solid var(--border);border-left:4px solid var(--purple);border-radius:var(--radius-sm);padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.wm-row.is-replacement{border-left-color:var(--orange);}
+.wm-row.is-inspect{border-left-color:var(--yellow);background:var(--yellow-dim);}
+.wm-row-sku{font-family:var(--mono);font-size:var(--fs-sm);font-weight:700;}
+.wm-row-cell{font-size:var(--fs-xs);color:var(--text-muted);}
+.wm-row-order{font-family:var(--mono);font-size:var(--fs-xs);color:var(--accent);}
+.wm-row-by{font-size:var(--fs-xs);color:var(--text-dim);}
+.wm-inspect-badge{font-family:var(--mono);font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;background:var(--yellow-dim);color:var(--yellow);border:1px solid var(--yellow);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;}
+
+/* Mobile */
+@media(max-width:520px){
+  .card-row{flex-wrap:wrap;}
+  .card-right{flex-direction:row;align-items:center;margin-left:auto;}
+  .card-sku-name{font-size:19px;}
+  .card-qty-big{font-size:22px;}
+  .takt-pill{font-size:14px;padding:4px 10px;}
+  .due-group-header{font-size:var(--fs-xs);padding:14px 14px 6px;}
+  .sku-card{margin-bottom:8px;}
+  .mh-orders{max-width:100px;}
+}
 
 /* ── MATERIALS ROW — color-coded by type ── */
 .card-mats{display:flex;align-items:center;gap:10px;padding:8px 18px 12px;border-top:2px solid var(--border2);flex-wrap:wrap;}
@@ -202,13 +364,28 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
 
 /* SAVED PANEL */
 #saved-panel{display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;}
-.saved-list{display:flex;flex-direction:column;gap:8px;margin-top:12px;}
-.saved-row{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
-.saved-row-left{display:flex;align-items:center;gap:14px;}
-.saved-cell{font-family:var(--mono);font-size:var(--fs-sm);color:var(--accent);font-weight:600;}
-.saved-time{font-size:var(--fs-xs);color:var(--text-muted);}
-.saved-by{font-size:var(--fs-xs);color:var(--text-dim);}
-.saved-row-right{display:flex;gap:8px;}
+.saved-list{display:flex;flex-direction:column;gap:10px;margin-top:12px;}
+.saved-row{
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-left:3px solid var(--accent);
+  border-radius:var(--radius-sm);
+  padding:14px 16px;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;
+  transition:border-color .15s;
+}
+.saved-row:hover{border-color:var(--accent);border-left-color:var(--accent-hover);}
+.saved-row-left{display:flex;flex-direction:column;gap:4px;min-width:0;}
+.saved-cell{font-family:var(--mono);font-size:18px;color:var(--text);font-weight:700;}
+.saved-meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.saved-time{font-size:var(--fs-xs);color:var(--text-muted);font-family:var(--mono);}
+.saved-by{font-size:var(--fs-xs);color:var(--text-dim);font-family:var(--mono);}
+.saved-row-right{display:flex;gap:8px;flex-shrink:0;}
+@media(max-width:520px){
+  .saved-cell{font-size:15px;}
+  .saved-row{padding:11px 12px;}
+}
 
 /* ── LIVE BOARD ── */
 #page-board{padding:22px 26px;gap:18px;}
@@ -248,15 +425,65 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
 #page-shortages{padding:22px 26px;gap:18px;}
 .sh-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
 .sh-title{font-size:20px;font-weight:700;}
-.sh-tabs{display:flex;gap:6px;}
+.sh-tabs{display:flex;gap:6px;flex-wrap:wrap;}
 .sh-tab{font-size:var(--fs-sm);font-weight:600;padding:6px 14px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;color:var(--text-muted);cursor:pointer;}
 .sh-tab.active{background:var(--accent-dim);color:var(--accent);border-color:var(--accent);}
 .sh-notice{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);padding:14px 18px;font-size:var(--fs-sm);display:flex;gap:12px;color:var(--text-muted);}
+
+/* Shortage catalog toolbar */
+.sh-catalog-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px;}
+.sh-catalog-counts{display:flex;gap:16px;font-family:var(--mono);font-size:var(--fs-xs);font-weight:700;}
+.sh-count-out{color:var(--red);}
+.sh-count-low{color:var(--yellow);}
+.sh-count-ok{color:var(--green);}
+.sh-filter{max-width:240px;font-size:var(--fs-xs);}
+
+/* Section headers */
+.sh-section-header{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:12px 4px 6px;}
+.sh-section-out{color:var(--red);}
+.sh-section-low{color:var(--yellow);}
+.sh-section-ok{color:var(--green);}
+
+/* Catalog table */
+.sh-catalog-table{width:100%;border-collapse:collapse;font-size:var(--fs-sm);background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;margin-bottom:12px;}
+.sh-catalog-table th{font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);padding:8px 14px;text-align:left;border-bottom:1px solid var(--border2);background:var(--surface2);}
+.sh-catalog-table td{padding:8px 14px;border-bottom:1px solid var(--border2);vertical-align:middle;}
+.sh-catalog-table tr:last-child td{border-bottom:none;}
+.sh-row-out{border-left:3px solid var(--red);}
+.sh-row-low{border-left:3px solid var(--yellow);}
+.sh-row-ok{border-left:3px solid var(--green);opacity:.7;}
+.sh-row-ok:hover{opacity:1;}
+.sh-sku-cell{font-family:var(--mono);font-size:13px;font-weight:700;white-space:nowrap;}
+.sh-notes-cell{max-width:260px;}
+.sh-notes-input{width:100%;background:transparent;border:1px solid transparent;border-radius:3px;padding:3px 6px;font-size:12px;color:var(--text);font-family:var(--sans);}
+.sh-notes-input:focus{outline:none;border-color:var(--accent);background:var(--surface2);}
+/* Status toggle buttons in shortage grid */
+.sh-status-btn{font-size:11px;font-weight:600;padding:4px 10px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:transparent;color:var(--text-muted);cursor:pointer;transition:all .12s;white-space:nowrap;}
+.sh-status-btn:hover{border-color:var(--text-muted);color:var(--text);}
+.sh-status-btn.sh-in.active{background:rgba(0,200,80,.12);border-color:var(--green);color:var(--green);}
+.sh-status-btn.sh-low.active{background:rgba(255,200,0,.12);border-color:var(--yellow);color:var(--yellow);}
+.sh-status-btn.sh-out.active{background:rgba(255,60,60,.12);border-color:var(--red);color:var(--red);}
+.sh-grid-wrap{overflow-x:auto;}
+.sh-approved-label{font-size:11px;color:var(--green);font-style:italic;}
+
+/* Status select inline */
+.sh-status-sel{font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:var(--radius-sm);cursor:pointer;border:2px solid var(--border2);background:var(--surface2);color:var(--text);outline:none;}
+.sh-status-sel.sh-status-out_of_stock{border-color:var(--red);color:var(--red);background:var(--red-dim);}
+.sh-status-sel.sh-status-low_quantity{border-color:var(--yellow);color:var(--yellow);background:var(--yellow-dim);}
+.sh-status-sel.sh-status-in_stock{border-color:var(--green);color:var(--green);background:var(--green-dim);}
+
+/* Standard sh-table kept for other uses */
 .sh-table{width:100%;border-collapse:collapse;font-size:var(--fs-sm);background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;margin-bottom:8px;}
 .sh-table th{font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);padding:10px 16px;text-align:left;border-bottom:1px solid var(--border2);background:var(--surface2);}
 .sh-table td{padding:9px 16px;border-bottom:1px solid var(--border2);vertical-align:middle;}
 .sh-table tr:last-child td{border-bottom:none;}
 .sh-table tr:hover td{background:var(--surface2);}
+
+/* Material event workflow checkboxes */
+.mh-event-lbl{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;color:var(--text-muted);cursor:pointer;white-space:nowrap;}
+.mh-event-lbl input{accent-color:var(--accent);}
+.mh-delivered td{opacity:.5;}
+.mh-delivered .mh-sku{text-decoration:line-through;}
 
 /* ── LOGIN ── */
 #page-login{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:26px;}
@@ -425,3 +652,39 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
   .pt-due.soon{color:#b07000;font-weight:600;}
   .pt-due.overdue{color:#c00;font-weight:600;}
 }
+
+/* ── Read-only schedule presentation ── */
+.sku-card{cursor:default;}
+.sku-card:active{cursor:default;}
+.qty-clean{align-items:center;gap:8px;margin-top:10px;}
+.card-qty-value{font-family:var(--mono);font-size:24px;font-weight:700;color:var(--text);line-height:1;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:5px 11px;min-width:42px;text-align:center;}
+.card-qty-total-clean{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--text-muted);background:var(--surface3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:4px 9px;}
+.readonly-flag{font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:4px 9px;border-radius:var(--radius-sm);white-space:nowrap;}
+.must-ship-readonly{background:var(--red-dim);color:var(--red);border:1px solid var(--red);}
+.card-mats-readonly{gap:8px;}
+.mat-readonly{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;border-radius:var(--radius-sm);padding:5px 9px;border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);}
+.mat-readonly strong{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);}
+.mat-readonly.ok{border-color:var(--border2);}
+.mat-readonly.need{border-color:var(--yellow);background:var(--yellow-dim);color:var(--yellow);}
+.order-status-chip{font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 7px;border-radius:var(--radius-sm);}
+.order-status-chip.blocked{background:var(--red-dim);color:var(--red);border:1px solid var(--red);}
+
+/* ── Shortage search ── */
+.sh-search-row{display:flex;gap:8px;align-items:center;max-width:520px;margin:0 0 8px;}
+.sh-search-input{font-size:var(--fs-sm);padding:8px 11px;}
+
+/* ── Blacklist manager ── */
+#page-blacklist{padding:22px 26px;gap:18px;overflow:auto;}
+.blacklist-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.blacklist-title{font-size:20px;font-weight:700;}
+.blacklist-panel{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);padding:18px 20px;display:flex;flex-direction:column;gap:12px;}
+.blacklist-add-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.blacklist-add-row .input{max-width:320px;}
+.blacklist-list{display:flex;flex-direction:column;gap:8px;}
+.blacklist-row{background:var(--surface2);border:1px solid var(--border);border-left:4px solid var(--red);border-radius:var(--radius-sm);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.blacklist-order{font-family:var(--mono);font-size:16px;font-weight:700;color:var(--text);}
+.blacklist-meta{font-family:var(--mono);font-size:11px;color:var(--text-muted);margin-top:3px;}
+
+/* Blacklist setup fallback */
+.blacklist-setup{background:var(--surface);border:1px solid var(--yellow);border-radius:var(--radius);padding:20px 22px;margin-top:12px;}
+.sql-snippet{white-space:pre-wrap;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:12px;font-family:var(--mono);font-size:12px;color:var(--text);overflow:auto;}

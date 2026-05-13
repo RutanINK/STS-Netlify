@@ -70,12 +70,13 @@ function renderBoard() {
     const isDown = machineDownCells.has(c.cell);
     const cCls = isDown ? 'bcc-down' : c.mins > 0 ? 'bcc-active' : '';
     const totalUnits = c.items.reduce((s, it) => s + (it.quantity || 0), 0);
-    return `<div class="board-cell-card ${cCls}" onclick="openCellDetail('${c.cell}')">
+    // esc() all DB-derived strings to prevent XSS
+    return `<div class="board-cell-card ${cCls}" onclick="openCellDetail('${esc(c.cell)}')">
       ${isDown ? '<div class="bcc-down-badge">MACHINE DOWN</div>' : ''}
-      <div class="bcc-name">${c.cell}${c.isSecondary ? ' <span style="font-size:10px;color:var(--text-dim);">(2°)</span>' : ''}</div>
+      <div class="bcc-name">${esc(c.cell)}${c.isSecondary ? ' <span style="font-size:10px;color:var(--text-dim);">(2°)</span>' : ''}</div>
       <div class="bcc-hours ${hCls}">${c.mins > 0 ? hrs + 'h' : '—'}</div>
       <div class="bcc-sub">${c.items.length} SKU${c.items.length !== 1 ? 's' : ''} · ${totalUnits} units</div>
-      <div class="bcc-by">${c.by ? '📋 ' + c.by : 'No schedule today'}</div>
+      <div class="bcc-by">${c.by ? '📋 ' + esc(c.by) : 'No schedule today'}</div>
     </div>`;
   }).join('');
 }
@@ -111,12 +112,12 @@ function openCellDetail(cn) {
 
       html += `<div class="ovl-item">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <span class="ovl-sku">${it.sku}</span>${badges.join('')}
-          <span class="qty-pill" style="font-size:11px;">×${it.quantity}</span>
+          <span class="ovl-sku">${esc(it.sku)}</span>${badges.join('')}
+          <span class="qty-pill" style="font-size:11px;">×${esc(it.quantity)}</span>
           <span class="takt-pill" style="font-size:11px;">⏱ ${fmtTakt(it.takt_minutes)}</span>
-          <span style="margin-left:auto;">${it.due_date ? `<span class="${dueCls}">📅 ${it.due_date}</span>` : ''}</span>
+          <span style="margin-left:auto;">${it.due_date ? `<span class="${dueCls}">📅 ${esc(it.due_date)}</span>` : ''}</span>
         </div>
-        ${matWarn.length ? `<div class="ovl-sub">⚠ ${matWarn.join(' | ')}</div>` : ''}
+        ${matWarn.length ? `<div class="ovl-sub">⚠ ${matWarn.map(esc).join(' | ')}</div>` : ''}
       </div>`;
     });
     document.getElementById('ovl-body').innerHTML = html;

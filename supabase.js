@@ -14,7 +14,9 @@ async function sb(path, method = 'GET', body = null, extra = {}) {
   const opts = { method, headers: h };
   if (body) opts.body = JSON.stringify(body);
 
-  const r = await fetch(SB_URL + '/rest/v1/' + path, opts);
+  const sep = String(path).includes('?') ? '&' : '?';
+  const url = SB_URL + '/rest/v1/' + path + sep + 'apikey=' + encodeURIComponent(SB_KEY);
+  const r = await fetch(url, opts);
   if (!r.ok) {
   const text = await r.text();
 

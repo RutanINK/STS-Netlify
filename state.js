@@ -29,6 +29,15 @@ let approvedOverrides       = {};  // { sku: reason }
 // Material handler completion tracking
 let mhCheckState = {};  // { idx: { done, comment } }
 
+// Supervisor order blacklist (order numbers that should not be scheduled)
+let blacklistedOrders = new Set();
+
+// Pending inspection requests (warranty/replacement marked done, awaiting supervisor)
+let pendingInspections = [];
+
+// "My Cells" view — area leader's assigned cell list (loaded on boot)
+let myCellsList = [];  // array of cell name strings
+
 const MAT_HANDLER_CONFIG = {
   box_handler:      { field: null,        label: 'Box Handler',      col: 'Boxes',      showBoxGroups: true  },
   lumber_handler:   { field: 'lumber',    label: 'Lumber Handler',   col: 'Lumber',     showBoxGroups: false },
