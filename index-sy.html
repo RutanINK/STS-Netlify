@@ -3,7 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>STS — Syracuse (SY) — Scheduling Team System</title>
+<title>Supply Team Schedule — Syracuse (SY)</title>
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';
+  style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
+  font-src 'self' https://fonts.gstatic.com;
+  connect-src 'self' https://shvpwfddsfmrxiywurcm.supabase.co https://chat.googleapis.com https://cdn.jsdelivr.net;
+  img-src 'self' data:;
+  object-src 'none';
+  base-uri 'self';
+  form-action 'self';
+">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
 <link rel="icon" href="data:,">  <!-- suppresses favicon 404 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="styles.css">
@@ -15,7 +28,7 @@
 <div id="page-login" class="page" style="display:none;">
   <div class="login-box">
     <div class="login-logo">STS</div>
-    <div class="login-sub">Scheduling Team System</div>
+    <div class="login-sub">Supply Team Schedule</div>
     <div class="login-step active" id="ls-name">
       <div class="login-title">Select your name</div>
       <div class="login-hint">Choose your account to continue.</div>
@@ -52,7 +65,7 @@
 <!-- ══ HEADER ══ -->
 <div id="main-header" style="display:none;">
   <div class="hdr-left">
-    <div class="logo">STS<span class="logo-sep"> / </span>Scheduling Team System</div>
+    <div class="logo">STS<span class="logo-sep"> / </span>Supply Team Schedule</div>
     <span class="campus-pill" id="campus-pill">SY</span>
     <nav class="nav-tabs">
       <button class="nav-tab active" onclick="showPage('schedule')" id="tab-schedule">Schedule</button>
@@ -81,6 +94,25 @@
       <option value="bending_handler">Bending Handler</option>
       <option value="slings_handler">Slings Handler</option>
     </select>
+    <!-- Dev Role Switcher — only visible when logged in as DEV_USER_ID (config.js) -->
+    <div id="dev-role-panel" style="display:none;align-items:center;gap:6px;background:#1a0530;border:1px solid var(--purple);border-radius:var(--radius-sm);padding:3px 8px;">
+      <span style="font-size:10px;font-family:var(--mono);color:var(--purple);font-weight:700;letter-spacing:.05em;">🛠 DEV</span>
+      <select class="select" id="dev-role-select" style="font-size:11px;width:160px;border-color:var(--purple);background:var(--purple-dim);" onchange="devSwitchRole(this.value)">
+        <optgroup label="Management">
+          <option value="area_leader">Area Leader</option>
+          <option value="supervisor">Supervisor</option>
+          <option value="manager">Manager</option>
+          <option value="admin">Admin</option>
+        </optgroup>
+        <optgroup label="Material Handlers">
+          <option value="box_handler">Box Handler</option>
+          <option value="lumber_handler">Lumber Handler</option>
+          <option value="hardware_handler">Hardware Handler</option>
+          <option value="bending_handler">Bending Handler</option>
+          <option value="slings_handler">Slings Handler</option>
+        </optgroup>
+      </select>
+    </div>
     <button class="btn-logout" onclick="logout()">Log out</button>
   </div>
 </div>

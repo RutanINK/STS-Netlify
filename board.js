@@ -134,31 +134,40 @@ function openMachineDown() {
 
 async function sendMachineDown() {
   const cn   = activeOverlayCell;
-  const note = document.getElementById('mdown-note').value.trim();
+  // Sanitise note: strip tags, limit length
+  const note = String(document.getElementById('mdown-note').value || '').replace(/[<>]/g, '').trim().slice(0, 500);
   const btn  = document.getElementById('btn-mdown-send');
   btn.disabled = true; btn.textContent = 'Sending…';
 
   const payload = {
-    text: `🔴 MACHINE DOWN — ${cn} | Reported by: ${currentUser.name} | Campus: ${currentUser.campus} | Time: ${new Date().toLocaleString()}${note ? ' | Issue: ' + note : ''}`
+    cell:     cn,
+    reporter: currentUser.name,
+    campus:   currentUser.campus,
+    note:     note,
+    time:     new Date().toISOString()
   };
 
   try {
-    if (MACHINE_DOWN_WEBHOOK.includes('YOUR_WEBHOOK_URL_HERE')) {
-      // Placeholder mode — logs to console, marks the cell on the board
-      console.log('Machine Down payload (webhook not configured yet):', payload);
-      machineDownCells.add(cn);
-      closeModal('modal-mdown');
-      document.getElementById('overlay-cell').classList.remove('open');
-      renderBoard();
-      toast(`⚠ Alert logged for ${cn} (add webhook URL in config.js to send)`, 'info');
-    } else {
-      await fetch(MACHINE_DOWN_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      machineDownCells.add(cn);
-      closeModal('modal-mdown');
-      document.getElementById('overlay-cell').classList.remove('open');
-      renderBoard();
-      toast('🔴 Machine down alert sent for ' + cn, 'ok');
+    // ── Call Supabase Edge Function (webhook secret stays server-side) ──
+    const resp = await fetch(MACHINE_DOWN_FN, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + SB_KEY,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+      const msg = await resp.text().catch(() => 'Unknown error');
+      throw new Error(msg);
     }
+
+    machineDownCells.add(cn);
+    closeModal('modal-mdown');
+    document.getElementById('overlay-cell').classList.remove('open');
+    renderBoard();
+    toast('🔴 Machine down alert sent for ' + cn, 'ok');
   } catch (e) {
     toast('Webhook error: ' + e.message, 'err');
   } finally {

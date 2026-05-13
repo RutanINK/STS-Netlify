@@ -5,8 +5,20 @@
 const SB_URL = 'https://shvpwfddsfmrxiywurcm.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNodnB3ZmRkc2ZtcnhpeXd1cmNtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2NDM3MjMsImV4cCI6MjA4ODIxOTcyM30.yZeg5ErBd42iMBchtDrfxE6TsUZRLoqAHpedqLWi06w';
 
-// Google Chat webhook for Machine Down alerts
-const MACHINE_DOWN_WEBHOOK = 'https://chat.googleapis.com/v1/spaces/AAQA3xEvkXw/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=E4CkZj1cqxw9qZOgL4CzNekRBq9DYPsjuCYeDjKsbqc';
+// ── Webhook ──
+// The Google Chat webhook URL is NO LONGER stored here.
+// It is called server-side via a Supabase Edge Function named "machine-down-alert".
+// The function holds the secret webhook URL in Supabase Vault (never exposed to the browser).
+// See: https://supabase.com/docs/guides/functions
+// To deploy: supabase functions deploy machine-down-alert
+// To set the secret: supabase secrets set MACHINE_DOWN_WEBHOOK="https://chat.googleapis.com/..."
+const MACHINE_DOWN_FN = SB_URL + '/functions/v1/machine-down-alert';
+
+// ── Dev Role Switcher ──
+// Set this to YOUR Supabase employee UUID to enable the on-the-fly role switcher.
+// Only this exact user ID will ever see the dev panel — everyone else sees nothing.
+// To find your ID: log in, open browser DevTools → Application → Session Storage → sts_user → copy "id".
+const DEV_USER_ID = 'REPLACE_WITH_YOUR_UUID'; // e.g. 'a1b2c3d4-0000-0000-0000-000000000000'
 
 // Live board polling interval (ms)
 const LIVE_POLL_MS = 30000;

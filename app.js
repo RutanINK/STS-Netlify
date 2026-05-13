@@ -24,6 +24,9 @@ function bootApp() {
   document.getElementById('view-as-select').style.display = currentUser.role === 'admin' ? '' : 'none';
   _applyRoleVisibility();
 
+  // Dev role switcher — only visible for the configured DEV_USER_ID
+  _initDevPanel();
+
   loadShortages(true);
 
   // Load blacklisted orders
@@ -59,6 +62,62 @@ function applyViewAs(role) {
   } else {
     showMatHandlerView(role);
   }
+}
+
+// ── Dev Role Switcher (only visible to DEV_USER_ID from config.js) ──
+function _initDevPanel() {
+  const panel = document.getElementById('dev-role-panel');
+  if (!panel) return;
+
+  // Strict check — must match exactly, and DEV_USER_ID must be set (not the placeholder)
+  const isDevUser =
+    typeof DEV_USER_ID === 'string' &&
+    DEV_USER_ID.length > 10 &&
+    DEV_USER_ID !== 'REPLACE_WITH_YOUR_UUID' &&
+    currentUser &&
+    currentUser.id === DEV_USER_ID;
+
+  panel.style.display = isDevUser ? 'flex' : 'none';
+
+  if (isDevUser) {
+    const sel = document.getElementById('dev-role-select');
+    if (sel) sel.value = currentUser.role;
+  }
+}
+
+function devSwitchRole(role) {
+  // Guard: only works for the specific dev user
+  if (!currentUser || currentUser.id !== DEV_USER_ID) return;
+  if (!role) return;
+
+  const allRoles = ['area_leader','supervisor','manager','admin',
+    'box_handler','lumber_handler','hardware_handler','bending_handler','slings_handler'];
+  if (!allRoles.includes(role)) return;  // reject unknown roles
+
+  // Store original role on first switch so we can restore it
+  if (!currentUser._originalRole) currentUser._originalRole = currentUser.role;
+
+  currentUser.role = role;
+  sessionStorage.setItem('sts_user', JSON.stringify(currentUser));
+
+  // Re-apply all role-based UI
+  document.getElementById('hdr-role').textContent = role.replace(/_/g, ' ');
+  document.getElementById('tab-dashboard').style.display  = DASH_ROLES.includes(role) ? '' : 'none';
+  document.getElementById('view-as-select').style.display = role === 'admin' ? '' : 'none';
+  _applyRoleVisibility();
+
+  // Show or hide mat-handler view
+  if (MAT_ROLES.includes(role)) {
+    showMatHandlerView(role);
+  } else {
+    const mhv = document.getElementById('mat-handler-view');
+    if (mhv) mhv.style.display = 'none';
+    const sl = document.getElementById('schedule-list');
+    if (sl) sl.style.display = '';
+    render();
+  }
+
+  toast(`🛠 Dev: switched to ${role.replace(/_/g, ' ')}`, 'info');
 }
 
 // ── View Cell Schedule — loads a cell's latest schedule into the Schedule tab read-only ──
