@@ -216,7 +216,6 @@ function render() {
     const dragAttrs = canDrag ? `draggable="true" ondragstart="onDS(event,${realIdx})" ondragover="onDO(event,${realIdx})" ondrop="onDP(event,${realIdx})" ondragleave="onDL(event)" ondragend="onDE(event)"` : `draggable="false" title="Warranty items cannot be reordered"`;
     html.push(`<div class="${cls.join(' ')}" ${dragAttrs} data-idx="${realIdx}"><div class="card-row"><span class="card-drag" style="${canDrag ? '' : 'opacity:.2;cursor:not-allowed;'}">&#8942;</span><div class="card-sku"><div class="card-sku-top"><span class="card-sku-name">${schedEsc(it.sku)}</span><span class="takt-pill">${schedEsc(it.taktStr)}</span><div class="card-badges">${badges.join('')}</div>${srcTags}</div>${it.description ? `<div class="card-sku-desc">${schedEsc(it.description)}</div>` : ''}${qtyDisplay}<div class="card-orders-wrap">${ordersToggle}${ordersPanel}</div></div><div class="card-right">${mustShipToggle}<button class="card-remove-btn" onclick="removeCard(${realIdx})">Remove</button></div></div>${matsRow}</div>`);
   });
-  html.push(`<div class="add-item-row"><button class="btn btn-ghost btn-sm" onclick="openAddItemModal()">+ Add Item</button></div>`);
   list.innerHTML = html.join('');
   buildPrintTable();
   updateTotals();
@@ -796,10 +795,16 @@ async function validateScheduleBeforeSave() {
   return { ok: blockedOrders.length === 0 && supplyBlocks.length === 0, blockedOrders: _dedupeByKey(blockedOrders, r => `${r.orderNum}|${r.sku}`), supplyBlocks: _dedupeByKey(supplyBlocks, r => `${r.sku}|${r.component}|${r.shortageSku}`) };
 }
 function showScheduleSaveBlockers(v) {
-  const lines = ['Cannot save this schedule yet. Remove or resolve these blocked items first.'];
-  if (v.blockedOrders.length) { lines.push('', 'Blocked order numbers:'); v.blockedOrders.slice(0, 30).forEach(r => lines.push(`- ${r.orderNum} on ${r.sku}${r.qty ? ` (qty ${r.qty})` : ''}`)); if (v.blockedOrders.length > 30) lines.push(`- ...and ${v.blockedOrders.length - 30} more`); }
-  if (v.supplyBlocks.length) { lines.push('', 'Out-of-stock material/BOM blocks:'); v.supplyBlocks.slice(0, 30).forEach(r => { if (r.source === 'bom') { const shortage = r.shortageSku && r.shortageSku !== r.component ? `; shortage profile ${r.shortageSku}` : ''; lines.push(`- ${r.sku} uses ${r.component}${shortage}${r.notes ? ` — ${r.notes}` : ''}`); } else lines.push(`- ${r.sku} is listed as out of stock${r.notes ? ` — ${r.notes}` : ''}`); }); if (v.supplyBlocks.length > 30) lines.push(`- ...and ${v.supplyBlocks.length - 30} more`); }
-  alert(lines.join('\n')); toast('Schedule has blocked orders or out-of-stock materials', 'err');
+  if (typeof showScheduleSaveBlockersModal === 'function') {
+    closeModal('modal-save');
+    showScheduleSaveBlockersModal(v);
+  } else {
+    const lines = ['Cannot save — resolve blocked items first.'];
+    if (v.blockedOrders.length) { lines.push(''); v.blockedOrders.slice(0,20).forEach(r => lines.push(`- ${r.orderNum} on ${r.sku}`)); }
+    if (v.supplyBlocks.length)  { lines.push(''); v.supplyBlocks.slice(0,20).forEach(r => lines.push(`- ${r.sku} blocked`)); }
+    alert(lines.join('\n'));
+  }
+  toast('Schedule has blocked orders or out-of-stock materials', 'err');
 }
 
 
@@ -819,7 +824,7 @@ async function doSave() {
     if (schedId) {
       // Update existing — delete old items and rewrite
       await sb('sts_schedule_items?schedule_id=eq.' + schedId, 'DELETE');
-      await sb('sts_schedules?id=eq.' + schedId, 'PATCH', { updated_at: new Date().toISOString(), created_by: currentUser.name, order_done_state: JSON.stringify(orderDoneState) }, { prefer: 'return=minimal' });
+      await sb('sts_schedules?id=eq.' + schedId, 'PATCH', { created_by: currentUser.name, order_done_state: JSON.stringify(orderDoneState) }, { prefer: 'return=minimal' });
     } else {
       const payload = { cell_name: cellName, campus: currentUser.campus, created_by: currentUser.name, created_at: new Date().toISOString(), order_done_state: JSON.stringify(orderDoneState) };
       if (currentUser.id && !currentUser.isTemporaryUser) payload.employee_id = currentUser.id;

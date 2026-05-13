@@ -688,3 +688,58 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
 /* Blacklist setup fallback */
 .blacklist-setup{background:var(--surface);border:1px solid var(--yellow);border-radius:var(--radius);padding:20px 22px;margin-top:12px;}
 .sql-snippet{white-space:pre-wrap;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:12px;font-family:var(--mono);font-size:12px;color:var(--text);overflow:auto;}
+
+/* ── My Cells — machine down indicator ── */
+.mycell-card-btn.mycell-down{border-color:var(--red);color:var(--red);background:var(--red-dim);}
+.mycell-down-dot{color:var(--red);font-size:10px;vertical-align:middle;}
+#mycells-actions{align-items:center;}
+
+/* ── Manage Cells Modal — section layout ── */
+.manage-cells-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);}
+
+/* ── Schedule History modal ── */
+.sched-hist-row{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;gap:10px;}
+.sched-hist-left{display:flex;flex-direction:column;gap:2px;}
+.sched-hist-time{font-family:var(--mono);font-size:var(--fs-sm);font-weight:600;color:var(--text);}
+.sched-hist-by{font-size:var(--fs-xs);color:var(--text-muted);}
+
+/* ── Save Blocker Modal ── */
+.save-block-section{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+.save-block-section-title{font-size:13px;font-weight:700;margin-bottom:4px;}
+.save-block-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs);}
+.save-block-row:last-child{border-bottom:none;}
+.save-block-order{font-family:var(--mono);font-weight:700;color:var(--red);}
+.save-block-sku{font-family:var(--mono);color:var(--text-muted);}
+.save-block-qty{font-family:var(--mono);font-size:11px;color:var(--text-dim);}
+.save-block-detail{font-family:var(--mono);font-size:12px;color:var(--orange);}
+.save-block-note{font-size:11px;color:var(--text-muted);font-style:italic;}
+
+/* ── Machine Down reason dropdown ── */
+#mdown-note-group textarea{font-size:var(--fs-sm);}
+
+/* ── My Cells — machine down state ── */
+.mycell-card-btn.mycell-down{border-color:var(--red);color:var(--red);background:var(--red-dim);}
+.mycell-down-dot{color:var(--red);font-size:10px;vertical-align:middle;margin-right:2px;}
+#mycells-actions{display:flex;align-items:center;}
+
+/* ── Schedule History modal ── */
+.sched-hist-row{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;gap:10px;}
+.sched-hist-left{display:flex;flex-direction:column;gap:2px;}
+.sched-hist-time{font-family:var(--mono);font-size:var(--fs-sm);font-weight:600;color:var(--text);}
+.sched-hist-by{font-size:var(--fs-xs);color:var(--text-muted);}
+
+/* ── Save Blocker Modal ── */
+.save-block-section{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+.save-block-section-title{font-size:13px;font-weight:700;margin-bottom:4px;}
+.save-block-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs);}
+.save-block-row:last-child{border-bottom:none;}
+.save-block-order{font-family:var(--mono);font-weight:700;color:var(--red);}
+.save-block-sku{font-family:var(--mono);color:var(--text-muted);}
+.save-block-qty{font-family:var(--mono);font-size:11px;color:var(--text-dim);}
+.save-block-detail{font-family:var(--mono);font-size:12px;color:var(--orange);}
+.save-block-note{font-size:11px;color:var(--text-muted);font-style:italic;}
+
+/* ── Schedule page — My Cells quick-load strip ── */
+.sched-mycell-quick{font-family:var(--mono);font-size:var(--fs-xs);font-weight:700;}
+.sched-mycell-quick.active{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+.sched-mycell-quick.mycell-down{border-color:var(--red);color:var(--red);background:var(--red-dim);}

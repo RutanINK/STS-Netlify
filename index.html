@@ -4,22 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Supply Team Schedule</title>
-<!-- OWASP: Content Security Policy — restricts where scripts/styles/fonts can load from -->
-<meta http-equiv="Content-Security-Policy" content="
-  default-src 'self';
-  script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline';
-  style-src 'self' https://fonts.googleapis.com 'unsafe-inline';
-  font-src 'self' https://fonts.gstatic.com;
-  connect-src 'self' https://shvpwfddsfmrxiywurcm.supabase.co https://chat.googleapis.com https://cdn.jsdelivr.net;
-  img-src 'self' data:;
-  object-src 'none';
-  base-uri 'self';
-  form-action 'self';
-">
-<!-- OWASP: Referrer Policy — prevents leaking URL info to third parties -->
-<meta name="referrer" content="strict-origin-when-cross-origin">
-<!-- OWASP: Permissions Policy — disable browser features the app doesn't need -->
-<meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()">
 <link rel="icon" href="data:,">  <!-- suppresses favicon 404 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="styles.css">
@@ -97,25 +81,6 @@
       <option value="bending_handler">Bending Handler</option>
       <option value="slings_handler">Slings Handler</option>
     </select>
-    <!-- Dev Role Switcher — only visible when logged in as DEV_USER_ID (config.js) -->
-    <div id="dev-role-panel" style="display:none;align-items:center;gap:6px;background:#1a0530;border:1px solid var(--purple);border-radius:var(--radius-sm);padding:3px 8px;">
-      <span style="font-size:10px;font-family:var(--mono);color:var(--purple);font-weight:700;letter-spacing:.05em;">🛠 DEV</span>
-      <select class="select" id="dev-role-select" style="font-size:11px;width:160px;border-color:var(--purple);background:var(--purple-dim);" onchange="devSwitchRole(this.value)">
-        <optgroup label="Management">
-          <option value="area_leader">Area Leader</option>
-          <option value="supervisor">Supervisor</option>
-          <option value="manager">Manager</option>
-          <option value="admin">Admin</option>
-        </optgroup>
-        <optgroup label="Material Handlers">
-          <option value="box_handler">Box Handler</option>
-          <option value="lumber_handler">Lumber Handler</option>
-          <option value="hardware_handler">Hardware Handler</option>
-          <option value="bending_handler">Bending Handler</option>
-          <option value="slings_handler">Slings Handler</option>
-        </optgroup>
-      </select>
-    </div>
     <button class="btn-logout" onclick="logout()">Log out</button>
   </div>
 </div>
@@ -138,6 +103,11 @@
 <div id="page-schedule" class="page" style="display:none;">
   <div class="paste-panel" id="paste-panel">
     <div class="panel-title">Paste Raw Sabertooth Data</div>
+    <!-- My Cells quick-load — shown when user has cells saved -->
+    <div id="sched-mycells-strip" style="display:none;margin-bottom:10px;">
+      <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Quick Load My Cell</div>
+      <div id="sched-mycells-btns" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+    </div>
     <textarea id="raw-input" placeholder="Paste Sabertooth schedule data here…"></textarea>
     <div class="paste-row">
       <button class="btn btn-primary btn-sm" id="btn-parse">Parse Schedule</button>

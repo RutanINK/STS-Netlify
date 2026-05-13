@@ -24,9 +24,6 @@ function bootApp() {
   document.getElementById('view-as-select').style.display = currentUser.role === 'admin' ? '' : 'none';
   _applyRoleVisibility();
 
-  // Dev role switcher — only visible for the configured DEV_USER_ID
-  _initDevPanel();
-
   loadShortages(true);
 
   // Load blacklisted orders
@@ -39,6 +36,8 @@ function bootApp() {
 
   // Load My Cells from localStorage
   _loadMyCellsFromStorage();
+  // Render the Quick Load strip on the Schedule page
+  renderSchedMyCellsStrip();
 
   // Populate edit-card material dropdowns
   _populateEditMatSelects(50);
@@ -62,62 +61,6 @@ function applyViewAs(role) {
   } else {
     showMatHandlerView(role);
   }
-}
-
-// ── Dev Role Switcher (only visible to DEV_USER_ID from config.js) ──
-function _initDevPanel() {
-  const panel = document.getElementById('dev-role-panel');
-  if (!panel) return;
-
-  // Strict check — must match exactly, and DEV_USER_ID must be set (not the placeholder)
-  const isDevUser =
-    typeof DEV_USER_ID === 'string' &&
-    DEV_USER_ID.length > 10 &&
-    DEV_USER_ID !== 'REPLACE_WITH_YOUR_UUID' &&
-    currentUser &&
-    currentUser.id === DEV_USER_ID;
-
-  panel.style.display = isDevUser ? 'flex' : 'none';
-
-  if (isDevUser) {
-    const sel = document.getElementById('dev-role-select');
-    if (sel) sel.value = currentUser.role;
-  }
-}
-
-function devSwitchRole(role) {
-  // Guard: only works for the specific dev user
-  if (!currentUser || currentUser.id !== DEV_USER_ID) return;
-  if (!role) return;
-
-  const allRoles = ['area_leader','supervisor','manager','admin',
-    'box_handler','lumber_handler','hardware_handler','bending_handler','slings_handler'];
-  if (!allRoles.includes(role)) return;  // reject unknown roles
-
-  // Store original role on first switch so we can restore it
-  if (!currentUser._originalRole) currentUser._originalRole = currentUser.role;
-
-  currentUser.role = role;
-  sessionStorage.setItem('sts_user', JSON.stringify(currentUser));
-
-  // Re-apply all role-based UI
-  document.getElementById('hdr-role').textContent = role.replace(/_/g, ' ');
-  document.getElementById('tab-dashboard').style.display  = DASH_ROLES.includes(role) ? '' : 'none';
-  document.getElementById('view-as-select').style.display = role === 'admin' ? '' : 'none';
-  _applyRoleVisibility();
-
-  // Show or hide mat-handler view
-  if (MAT_ROLES.includes(role)) {
-    showMatHandlerView(role);
-  } else {
-    const mhv = document.getElementById('mat-handler-view');
-    if (mhv) mhv.style.display = 'none';
-    const sl = document.getElementById('schedule-list');
-    if (sl) sl.style.display = '';
-    render();
-  }
-
-  toast(`🛠 Dev: switched to ${role.replace(/_/g, ' ')}`, 'info');
 }
 
 // ── View Cell Schedule — loads a cell's latest schedule into the Schedule tab read-only ──
@@ -158,6 +101,7 @@ function showPage(p) {
   }
   if (p === 'bom')         { _updateBOMStatus(); }
   if (p === 'mycells')     { loadMyCellsList(); }
+  if (p === 'schedule')    { renderSchedMyCellsStrip(); }
   if (p === 'warrantymgr') { loadWarrantyMgr(); }
   if (p === 'blacklist')   { loadBlacklistManager(); }
 
@@ -583,6 +527,84 @@ async function removeBlacklistOrder(id, orderNum, btn) {
   }
 }
 
+// ── Schedule page — My Cells quick-load strip ──
+// Renders cell buttons in the paste panel so users can load their cell into the
+// Schedule tab directly, fully editable (same as loading a saved schedule).
+function renderSchedMyCellsStrip() {
+  const strip = document.getElementById('sched-mycells-strip');
+  const btnsEl = document.getElementById('sched-mycells-btns');
+  if (!strip || !btnsEl) return;
+
+  if (!myCellsList || !myCellsList.length) {
+    strip.style.display = 'none';
+    return;
+  }
+
+  strip.style.display = '';
+  btnsEl.innerHTML = myCellsList.map(c => {
+    const isDown = machineDownCells.has(c);
+    return `<button class="btn btn-ghost btn-sm sched-mycell-quick${isDown ? ' mycell-down' : ''}"
+      onclick="loadMyCellIntoSchedule('${c}',this)"
+      data-cell="${c}"
+      title="Load ${c} into Schedule for editing">
+      ${isDown ? '<span class="mycell-down-dot">●</span> ' : ''}${c}
+    </button>`;
+  }).join('');
+}
+
+async function loadMyCellIntoSchedule(cellNameVal, btn) {
+  if (!cellNameVal) return;
+
+  // If there's already a schedule loaded and it has unsaved changes, confirm
+  if (scheduleItems.length && typeof hasUnsavedChanges === 'function' && hasUnsavedChanges()) {
+    if (!confirm(`You have unsaved changes for ${cellName}. Discard and load ${cellNameVal}?`)) return;
+  }
+
+  // Highlight the clicked button
+  document.querySelectorAll('.sched-mycell-quick').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  toast(`Loading ${cellNameVal}…`, 'info');
+
+  try {
+    const scheds = await sb(
+      `sts_schedules?cell_name=eq.${encodeURIComponent(cellNameVal)}&campus=eq.${currentUser.campus}&order=created_at.desc&limit=1&select=id`
+    );
+
+    if (!scheds || !scheds.length) {
+      // No saved schedule — set up a blank schedule for this cell so they can build one
+      if (typeof scheduleItems !== 'undefined') {
+        scheduleItems = [];
+        cellName = cellNameVal;
+        savedScheduleId = null;
+        lastSavedState = null;
+        variantSources = [];
+        orderDoneState = {};
+        document.getElementById('paste-panel').style.display = 'block';
+        if (typeof updateVariantButtons === 'function') updateVariantButtons();
+        if (typeof render === 'function') render();
+        if (typeof markUnsaved === 'function') markUnsaved();
+        // Update the meta chip to show the cell name
+        const cellEl = document.getElementById('meta-cell');
+        if (cellEl) cellEl.innerHTML = `<span class="meta-cell-name">${cellNameVal}</span><span class="meta-campus">${currentUser.campus}</span>`;
+        document.getElementById('sched-meta').style.display = 'flex';
+        document.getElementById('empty-state').style.display = 'block';
+      }
+      toast(`No saved schedule for ${cellNameVal} — starting fresh`, 'info');
+      return;
+    }
+
+    // Load the existing schedule — fully editable
+    await loadSchedule(scheds[0].id);
+    // Collapse the paste panel since schedule is now loaded
+    document.getElementById('paste-panel').style.display = 'none';
+    toast(`Loaded ${cellNameVal} — ready to edit`, 'ok');
+  } catch (e) {
+    toast('Load failed: ' + e.message, 'err');
+    if (btn) btn.classList.remove('active');
+  }
+}
+
 // ── My Cells — user manages their own list ──
 const MY_CELLS_KEY = 'sts_my_cells_' + (currentUser?.id || 'guest');
 
@@ -619,6 +641,7 @@ function saveMyCells() {
   _saveMyCellsToStorage();
   closeModal('modal-manage-cells');
   renderMyCellsCards();
+  renderSchedMyCellsStrip();
   toast('My Cells updated', 'ok');
 }
 
