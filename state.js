@@ -45,3 +45,6 @@ const MAT_HANDLER_CONFIG = {
   bending_handler:  { field: 'bentParts', label: 'Bending Handler',  col: 'Bent Parts', showBoxGroups: false },
   slings_handler:   { field: 'slings',    label: 'Slings Handler',   col: 'Slings',     showBoxGroups: false },
 };
+// Warranty auto-poll
+let warrantyPollTimer    = null;
+let lastWarrantySnapshot = '';   // JSON of known warranty order refs for current cell

@@ -385,23 +385,48 @@ function toggleOrderDone(realIdx, orderNum) {
 }
 
 // ── Order done for warranty/replacement — prompts supervisor inspection ──
+// Uses upsert logic: checks for an existing pending record before inserting,
+// so clicking Done multiple times (or two users on the same schedule) never
+// creates duplicate inspection rows.
 function toggleOrderDoneWithInspect(realIdx, orderNum, sku, orderType) {
   if (!orderDoneState[realIdx]) orderDoneState[realIdx] = {};
   const nowDone = !orderDoneState[realIdx][orderNum];
   orderDoneState[realIdx][orderNum] = nowDone;
+
   if (nowDone) {
     const typeLabel = orderType === 'warranty' ? 'Warranty' : 'Full Replacement';
     pendingInspections.push({ orderNum, sku, typeLabel, cell: cellName, markedBy: currentUser.name, markedAt: new Date().toISOString() });
-    sb('sts_inspection_queue?select=id', 'POST', {
-      order_number: orderNum, sku, order_type: orderType, cell_name: cellName,
-      marked_by: currentUser.name, campus: currentUser.campus, status: 'pending',
-      created_at: new Date().toISOString()
-    }).catch(() => {});
+
+    // Upsert: only insert if no pending row already exists for this order_number + campus.
+    // This prevents duplicates from: double-clicks, undo→redo, or two supervisors on the same cell.
+    (async () => {
+      try {
+        const existing = await sb(
+          `sts_inspection_queue?order_number=eq.${encodeURIComponent(orderNum)}&campus=eq.${currentUser.campus}&status=eq.pending&select=id&limit=1`
+        ).catch(() => []);
+        if (!existing || !existing.length) {
+          await sb('sts_inspection_queue?select=id', 'POST', {
+            order_number: orderNum, sku, order_type: orderType, cell_name: cellName,
+            marked_by: currentUser.name, campus: currentUser.campus, status: 'pending',
+            created_at: new Date().toISOString()
+          });
+        }
+        // else: row already exists, nothing to do
+      } catch(e) {
+        console.warn('Inspection queue write failed:', e.message);
+      }
+    })();
+
     logAction(LOG.INSPECT_REQUESTED, { sku, order_number: orderNum, note: typeLabel + ' marked done' });
     toast(`${typeLabel} marked done — supervisor notified to inspect`, 'info');
   } else {
+    // Undo: remove the pending inspection row so the supervisor isn't notified for an undone item
+    sb(`sts_inspection_queue?order_number=eq.${encodeURIComponent(orderNum)}&campus=eq.${currentUser.campus}&status=eq.pending`, 'DELETE')
+      .catch(() => {});
+    pendingInspections = pendingInspections.filter(p => String(p.orderNum).toUpperCase() !== String(orderNum).toUpperCase());
     logAction(LOG.ORDER_UNDONE, { sku, order_number: orderNum });
   }
+
   // Auto-persist done state if schedule is already saved
   if (savedScheduleId) {
     sb('sts_schedules?id=eq.' + savedScheduleId, 'PATCH', { order_done_state: JSON.stringify(orderDoneState) }, { prefer: 'return=minimal' }).catch(() => {});
@@ -418,43 +443,101 @@ function toggleOrdersPanel(btn) {
 }
 
 
-// ── Auto sort — group like SKUs together, ignoring color suffixes ──
-function autoSortLikeSkus() {
-  if (!scheduleItems.length) {
-    toast('No schedule loaded to sort', 'info');
-    return;
+// ── Auto sort modal ──
+function openAutoSortModal() {
+  if (!scheduleItems.length) { toast('No schedule loaded to sort', 'info'); return; }
+  let modal = document.getElementById('modal-auto-sort');
+  if (!modal) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-bd" id="modal-auto-sort">
+        <div class="modal" style="max-width:460px;">
+          <div class="modal-title">Auto Sort</div>
+          <div class="modal-sub" style="margin-bottom:16px;">Choose how to reorder the schedule:</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <button class="sort-option-btn" onclick="autoSortApply('like_skus')">
+              <span class="sort-opt-title">🔡 Like SKUs Together</span>
+              <span class="sort-opt-desc">Groups matching base SKUs (ignores color suffixes). Minimizes changeovers.</span>
+            </button>
+            <button class="sort-option-btn" onclick="autoSortApply('due_date')">
+              <span class="sort-opt-title">📅 By Due Date</span>
+              <span class="sort-opt-desc">Earliest due dates first. Items without a due date go last.</span>
+            </button>
+            <button class="sort-option-btn" onclick="autoSortApply('must_ships')">
+              <span class="sort-opt-title">🚨 Must Ships First</span>
+              <span class="sort-opt-desc">Bumps all Must Ship items to the top, then sorts remaining by due date.</span>
+            </button>
+            <button class="sort-option-btn" onclick="autoSortApply('full_replacements')">
+              <span class="sort-opt-title">🔄 Full Replacements First</span>
+              <span class="sort-opt-desc">Prioritizes warranty & full replacement orders at the top.</span>
+            </button>
+          </div>
+          <div class="modal-actions" style="margin-top:18px;">
+            <button class="btn btn-ghost" onclick="closeModal('modal-auto-sort')">Cancel</button>
+          </div>
+        </div>
+      </div>`);
   }
-
-  const before = scheduleItems.map(it => it.sku).join('|');
-  scheduleItems = scheduleItems
-    .map((it, originalIndex) => ({ it, originalIndex }))
-    .sort((a, b) => {
-      const aBase = baseSku(a.it.sku);
-      const bBase = baseSku(b.it.sku);
-      if (aBase !== bBase) return aBase.localeCompare(bBase, undefined, { numeric: true, sensitivity: 'base' });
-
-      // Same base SKU: keep colors/variants adjacent in a predictable order.
-      const skuCmp = String(a.it.sku || '').localeCompare(String(b.it.sku || ''), undefined, { numeric: true, sensitivity: 'base' });
-      if (skuCmp) return skuCmp;
-
-      // Same SKU: keep due-date groups together where possible, then preserve original order.
-      const dueCmp = String(a.it.dueDate || '').localeCompare(String(b.it.dueDate || ''), undefined, { numeric: true, sensitivity: 'base' });
-      if (dueCmp) return dueCmp;
-      return a.originalIndex - b.originalIndex;
-    })
-    .map(row => row.it);
-
-  const after = scheduleItems.map(it => it.sku).join('|');
-  if (after === before) {
-    toast('Schedule is already sorted by like SKU', 'info');
-    return;
-  }
-
-  logAction(LOG.ITEM_REORDERED, { note: 'Auto sorted by base SKU' });
-  render();
-  markUnsaved();
-  toast('Sorted like SKUs together', 'ok');
+  document.getElementById('modal-auto-sort').classList.add('open');
 }
+
+function autoSortApply(mode) {
+  closeModal('modal-auto-sort');
+  if (!scheduleItems.length) return;
+  const before = scheduleItems.map(it => it.sku + '|' + it.orderNum).join('||');
+
+  const dueSortVal = (it) => {
+    const d = scheduleDaysDiff(it.dueDate);
+    return d === null ? 9999 : d;
+  };
+
+  if (mode === 'like_skus') {
+    scheduleItems = scheduleItems
+      .map((it, i) => ({ it, i }))
+      .sort((a, b) => {
+        const aBase = baseSku(a.it.sku), bBase = baseSku(b.it.sku);
+        if (aBase !== bBase) return aBase.localeCompare(bBase, undefined, { numeric: true, sensitivity: 'base' });
+        const skuCmp = String(a.it.sku || '').localeCompare(String(b.it.sku || ''), undefined, { numeric: true, sensitivity: 'base' });
+        if (skuCmp) return skuCmp;
+        const dueCmp = dueSortVal(a.it) - dueSortVal(b.it);
+        if (dueCmp) return dueCmp;
+        return a.i - b.i;
+      })
+      .map(r => r.it);
+
+  } else if (mode === 'due_date') {
+    scheduleItems = scheduleItems
+      .map((it, i) => ({ it, i }))
+      .sort((a, b) => {
+        const da = dueSortVal(a.it), db = dueSortVal(b.it);
+        if (da !== db) return da - db;
+        return a.i - b.i;
+      })
+      .map(r => r.it);
+
+  } else if (mode === 'must_ships') {
+    const mustShip = scheduleItems.filter(it => it.mustShip);
+    const rest     = scheduleItems.filter(it => !it.mustShip);
+    const sortByDue = arr => [...arr].sort((a, b) => dueSortVal(a) - dueSortVal(b));
+    scheduleItems = [...sortByDue(mustShip), ...sortByDue(rest)];
+
+  } else if (mode === 'full_replacements') {
+    const replacements = scheduleItems.filter(it => it.orderType === 'replacement' || it.orderType === 'warranty');
+    const rest         = scheduleItems.filter(it => it.orderType !== 'replacement' && it.orderType !== 'warranty');
+    const sortByDue = arr => [...arr].sort((a, b) => dueSortVal(a) - dueSortVal(b));
+    scheduleItems = [...sortByDue(replacements), ...sortByDue(rest)];
+  }
+
+  const after = scheduleItems.map(it => it.sku + '|' + it.orderNum).join('||');
+  if (after === before) { toast('Already sorted that way', 'info'); return; }
+
+  const labels = { like_skus: 'like SKUs', due_date: 'due date', must_ships: 'Must Ships first', full_replacements: 'Replacements first' };
+  logAction(LOG.ITEM_REORDERED, { note: 'Auto sorted by ' + mode });
+  render(); markUnsaved();
+  toast('Sorted by ' + (labels[mode] || mode), 'ok');
+}
+
+// Keep old name as alias so ensureAutoSortButton wiring still works
+function autoSortLikeSkus() { openAutoSortModal(); }
 
 
 function _roundOneDecimal(n) { return Math.round(Number(n || 0) * 10) / 10; }
@@ -1049,6 +1132,7 @@ async function loadSchedule(id) {
     logAction(LOG.SCHEDULE_LOADED, { schedule_id: id, note: cellName });
     await loadMatEvents();
     render(); toast('Loaded ' + cellName, 'ok');
+    startWarrantyPoll();
   } catch (e) { toast('Load failed: ' + e.message, 'err'); }
 }
 
@@ -1120,26 +1204,231 @@ function printHandoff() {
 }
 
 // ── Warranty queue ──
+
+// Campus-aware cell query: always scopes to currentUser.campus so SY cells
+// never pull RX warranty rows (both campuses share overlapping cell numbers).
+// Also filters out orders that are already in the inspection queue (done on
+// warranty's end or already marked done in STS) to prevent re-appearing.
 async function loadWarrantyItemsForCell(targetCellName) {
   try {
+    const campus = currentUser.campus;
     const n = cellBaseNum(targetCellName);
     const variantMatch = targetCellName.match(/Cell\s+\d+([ab])/i);
     const variant = variantMatch ? variantMatch[1].toLowerCase() : null;
     let rows = [];
+
     if (n) {
-      rows = await sb(`sts_warranty_queue?assigned_cell_num=eq.${n}&status=in.(assigned,scheduled)&select=*`);
-      if (variant && rows && rows.length) rows = rows.filter(w => { const ac = String(w.assigned_cell || '').toLowerCase(); const rv = ac.match(/\d+([ab])/); if (rv) return rv[1] === variant; return true; });
+      rows = await sb(`sts_warranty_queue?assigned_cell_num=eq.${n}&campus=eq.${campus}&status=in.(assigned,scheduled)&select=*`);
+      if (variant && rows && rows.length) {
+        rows = rows.filter(w => {
+          const ac = String(w.assigned_cell || '').toLowerCase();
+          const rv = ac.match(/\d+([ab])/);
+          if (rv) return rv[1] === variant;
+          return true;
+        });
+      }
     }
-    if (!rows || !rows.length) rows = await sb(`sts_warranty_queue?assigned_cell=eq.${encodeURIComponent(targetCellName)}&status=in.(assigned,scheduled)&select=*`);
-    return (rows || []).map(w => {
-      const takt = Number(w.takt_minutes || 0), qty = Number(w.quantity || 1), ref = w.warranty_order || w.id, partNumber = w.inventory_id || w.sku || 'UNKNOWN-PART';
-      return { sku: partNumber, inventoryId: w.inventory_id || null, description: w.line_description || '', qty, totalQty: qty, taktMins: takt, taktStr: fmtTakt(takt), dueDate: w.due_date || null, mustShip: !!w.must_ship, orderNum: ref, orderNums: [ref].filter(Boolean), orderBreakdown: [{ orderNum: ref, qty, taktMins: takt, dueDate: w.due_date || null }], orderType: w.order_type === 'replacement' ? 'replacement' : 'warranty', sourceCell: w.assigned_cell || targetCellName, sourceSystem: 'warranty', sourceRef: w.id, lockedSource: true, boxes: 'have_all', hardware: 'have_all', lumber: 'have_all', slings: 'have_all', bentParts: 'have_all', showSlings: false, showBentParts: false, merged: false };
+
+    if (!rows || !rows.length) {
+      rows = await sb(`sts_warranty_queue?assigned_cell=eq.${encodeURIComponent(targetCellName)}&campus=eq.${campus}&status=in.(assigned,scheduled)&select=*`);
+    }
+
+    // Filter out orders already tracked as done/inspected in the inspection queue.
+    // This stops "already done on warranty's end" items from flowing back in.
+    rows = await _filterOutInspectedOrders(rows, campus);
+
+    return _mapWarrantyRows(rows, targetCellName);
+  } catch (e) {
+    console.warn('Warranty queue unavailable:', e);
+    toast('Warranty queue unavailable: ' + e.message, 'err');
+    return [];
+  }
+}
+
+// Returns only warranty rows whose order ref is NOT already in sts_inspection_queue
+// with status pending or inspected on this campus.
+async function _filterOutInspectedOrders(rows, campus) {
+  if (!rows || !rows.length) return rows;
+  try {
+    // Fetch all inspection records for this campus (pending + inspected)
+    const inspected = await sb(
+      `sts_inspection_queue?campus=eq.${campus}&status=in.(pending,inspected)&select=order_number`
+    ).catch(() => []);
+    if (!inspected || !inspected.length) return rows;
+
+    const doneRefs = new Set(
+      inspected.map(r => String(r.order_number || '').toUpperCase()).filter(Boolean)
+    );
+
+    return rows.filter(w => {
+      const ref = String(w.warranty_order || w.id || '').toUpperCase();
+      return !doneRefs.has(ref);
     });
-  } catch (e) { console.warn('Warranty queue unavailable:', e); toast('Warranty queue unavailable: ' + e.message, 'err'); return []; }
+  } catch(e) {
+    // If the inspection queue table doesn't exist yet, don't crash — just return rows unfiltered
+    return rows;
+  }
+}
+
+function _mapWarrantyRows(rows, targetCellName) {
+  return (rows || []).map(w => {
+    const takt = Number(w.takt_minutes || 0);
+    const qty  = Number(w.quantity || 1);
+    const ref  = w.warranty_order || w.id;
+    const partNumber = w.inventory_id || w.sku || 'UNKNOWN-PART';
+    return {
+      sku: partNumber, inventoryId: w.inventory_id || null, description: w.line_description || '',
+      qty, totalQty: qty, taktMins: takt, taktStr: fmtTakt(takt),
+      dueDate: w.due_date || null, mustShip: !!w.must_ship,
+      orderNum: ref, orderNums: [ref].filter(Boolean),
+      orderBreakdown: [{ orderNum: ref, qty, taktMins: takt, dueDate: w.due_date || null }],
+      orderType: w.order_type === 'replacement' ? 'replacement' : 'warranty',
+      sourceCell: w.assigned_cell || targetCellName,
+      sourceSystem: 'warranty', sourceRef: w.id, lockedSource: true,
+      boxes: 'have_all', hardware: 'have_all', lumber: 'have_all',
+      slings: 'have_all', bentParts: 'have_all',
+      showSlings: false, showBentParts: false, merged: false,
+    };
+  });
 }
 
 function mergeWarrantyItems(existingItems, warrantyItems) {
   if (!warrantyItems.length) return existingItems;
-  const existingKeys = new Set(existingItems.flatMap(it => (it.orderNums && it.orderNums.length ? it.orderNums : [it.orderNum]).filter(Boolean).map(o => String(o).toUpperCase())));
-  return [...existingItems, ...warrantyItems.filter(w => { const key = String(w.orderNum || '').toUpperCase(); return key && !existingKeys.has(key); })];
+  const existingKeys = new Set(existingItems.flatMap(it =>
+    (it.orderNums && it.orderNums.length ? it.orderNums : [it.orderNum])
+      .filter(Boolean).map(o => String(o).toUpperCase())
+  ));
+  return [...existingItems, ...warrantyItems.filter(w => {
+    const key = String(w.orderNum || '').toUpperCase();
+    return key && !existingKeys.has(key);
+  })];
+}
+
+// ── Warranty auto-poll ──
+// Runs every 30s when a schedule is loaded. Detects:
+//   1. New warranty/replacement orders → auto-merges + shows banner
+//   2. Orders that became received_in_warranty or archived → removes from schedule
+
+const WARRANTY_POLL_MS = 30000;
+// Statuses that mean "done / gone from WMS" — remove from schedule automatically
+const WARRANTY_DONE_STATUSES = new Set(['received_in_warranty', 'archived', 'completed', 'cancelled']);
+
+function startWarrantyPoll() {
+  stopWarrantyPoll();
+  if (!cellName) return;
+  // Capture initial snapshot so we don't immediately show a "new items" banner
+  _snapshotCurrentWarranties();
+  warrantyPollTimer = setInterval(_warrantyPollTick, WARRANTY_POLL_MS);
+}
+
+function stopWarrantyPoll() {
+  if (warrantyPollTimer) { clearInterval(warrantyPollTimer); warrantyPollTimer = null; }
+  lastWarrantySnapshot = '';
+}
+
+function _snapshotCurrentWarranties() {
+  // Build a snapshot of the warranty order refs currently on the schedule
+  const warrantyOnSchedule = scheduleItems
+    .filter(it => it.sourceSystem === 'warranty' || it.orderType === 'warranty' || it.orderType === 'replacement')
+    .flatMap(it => it.orderNums || [it.orderNum])
+    .filter(Boolean)
+    .map(o => String(o).toUpperCase())
+    .sort();
+  lastWarrantySnapshot = JSON.stringify(warrantyOnSchedule);
+}
+
+async function _warrantyPollTick() {
+  if (!cellName || !scheduleItems.length) return;
+  try {
+    const campus = currentUser.campus;
+    const n = cellBaseNum(cellName);
+    if (!n) return;
+
+    // Fetch all rows for this cell+campus regardless of status so we can detect gone items too
+    let allRows = await sb(`sts_warranty_queue?assigned_cell_num=eq.${n}&campus=eq.${campus}&select=id,warranty_order,status,order_type,inventory_id,sku`);
+    if (!allRows) allRows = [];
+
+    // Build a map: ref → status
+    const statusMap = {};
+    allRows.forEach(w => {
+      const ref = String(w.warranty_order || w.id).toUpperCase();
+      statusMap[ref] = w.status || '';
+    });
+
+    // ── Step 1: Remove items that are now received/archived ──
+    const before = scheduleItems.length;
+    const removedLabels = [];
+    scheduleItems = scheduleItems.filter(it => {
+      if (it.sourceSystem !== 'warranty' && it.orderType !== 'warranty' && it.orderType !== 'replacement') return true;
+      const ref = String(it.orderNum || '').toUpperCase();
+      if (!ref) return true;
+      const status = statusMap[ref];
+      // If status is a "done" status OR the row no longer exists in the WMS queue
+      if (WARRANTY_DONE_STATUSES.has(status) || (ref in statusMap === false && lastWarrantySnapshot.includes(ref))) {
+        removedLabels.push(it.sku);
+        return false;
+      }
+      return true;
+    });
+    const removedCount = before - scheduleItems.length;
+
+    // ── Step 2: Detect new items (status assigned/scheduled that aren't on schedule yet) ──
+    const activeRows = allRows.filter(w => {
+      const s = w.status || '';
+      return s === 'assigned' || s === 'scheduled';
+    });
+    const newRows = activeRows.filter(w => {
+      const ref = String(w.warranty_order || w.id).toUpperCase();
+      return !scheduleItems.some(it =>
+        (it.orderNums || [it.orderNum]).map(o => String(o || '').toUpperCase()).includes(ref)
+      );
+    });
+
+    if (newRows.length > 0) {
+      // Fetch full records for new rows, then filter out any already in inspection queue
+      const newIds = newRows.map(w => w.id);
+      let fullRows = await sb(`sts_warranty_queue?id=in.(${newIds.join(',')})&select=*`);
+      fullRows = await _filterOutInspectedOrders(fullRows || [], campus);
+      const newItems = _mapWarrantyRows(fullRows, cellName);
+      if (newItems.length) {
+        scheduleItems = mergeWarrantyItems(scheduleItems, newItems);
+        _snapshotCurrentWarranties();
+        render();
+        markUnsaved();
+        _showWarrantyBanner(
+          `${newItems.length} new warranty order${newItems.length !== 1 ? 's' : ''} added to schedule`,
+          'new'
+        );
+        logAction(LOG.ITEM_ADDED, { note: `Auto-pulled ${newItems.length} warranty item(s) for ${cellName}` });
+      }
+    } else if (removedCount > 0) {
+      _snapshotCurrentWarranties();
+      render();
+      markUnsaved();
+      _showWarrantyBanner(
+        `${removedCount} warranty order${removedCount !== 1 ? 's' : ''} removed (received/archived in WMS)`,
+        'removed'
+      );
+    } else {
+      // Nothing changed — just refresh snapshot
+      _snapshotCurrentWarranties();
+    }
+  } catch(e) {
+    console.warn('Warranty poll failed:', e.message);
+  }
+}
+
+function _showWarrantyBanner(msg, type) {
+  // Reuse the live-banner element with a different style based on type
+  const el = document.getElementById('live-banner');
+  if (!el) return;
+  const color = type === 'removed' ? 'var(--yellow)' : 'var(--purple)';
+  const bg    = type === 'removed' ? '#1c1500'        : '#1a0530';
+  el.style.background   = bg;
+  el.style.borderBottom = `2px solid ${color}`;
+  el.innerHTML = `<div class="live-banner-dot" style="background:${color};animation:none;"></div><span style="color:${color};">${msg}</span><button onclick="hideLiveBanner()" style="margin-left:auto;background:none;border:1px solid ${color};color:${color};border-radius:4px;padding:2px 10px;font-size:11px;cursor:pointer;">Dismiss</button>`;
+  el.style.display = 'flex';
+  // Auto-dismiss after 12s for new items (longer so they notice), 6s for removed
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(hideLiveBanner, type === 'new' ? 12000 : 6000);
 }

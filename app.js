@@ -97,8 +97,11 @@ function showPage(p) {
   if (p === 'dashboard')   loadDashboard();
   if (p === 'board')       { loadBoard(); startLivePoll(); }
   if (p === 'shortages') {
-    const savedTab = sessionStorage.getItem('sts_active_shortage_tab');
-    if (savedTab && typeof SHORTAGE_TABS !== 'undefined' && SHORTAGE_TABS[savedTab]) activeShortageTab = savedTab;
+    // Only restore from sessionStorage when NOT in test mode (test mode sets activeShortageTab explicitly)
+    if (!_testModeActive) {
+      const savedTab = sessionStorage.getItem('sts_active_shortage_tab');
+      if (savedTab && typeof SHORTAGE_TABS !== 'undefined' && SHORTAGE_TABS[savedTab]) activeShortageTab = savedTab;
+    }
     renderShortageTab();
   }
   if (p === 'bom')         { _updateBOMStatus(); }
@@ -334,6 +337,7 @@ document.getElementById('btn-parse').addEventListener('click', async () => {
     render();
     markUnsaved();
     if (typeof _updateSchedMachineDownBtn === 'function') _updateSchedMachineDownBtn();
+    if (typeof startWarrantyPoll === 'function') startWarrantyPoll();
 
     toast(`Parsed ${result.items.length} SKU${result.items.length !== 1 ? 's' : ''} — ${parsedCell}${parsedBlockedOrders ? ` (${parsedBlockedOrders} blocked order${parsedBlockedOrders !== 1 ? 's' : ''} must be removed before save)` : ''}`, 'ok');
   } catch (e) {
@@ -353,6 +357,7 @@ document.getElementById('btn-print').addEventListener('click', () => {
 
 document.getElementById('btn-clear').addEventListener('click', () => {
   if (!confirm('Clear current schedule?')) return;
+  if (typeof stopWarrantyPoll === 'function') stopWarrantyPoll();
   scheduleItems = []; cellName = ''; savedScheduleId = null; lastSavedState = null; variantSources = []; orderDoneState = {};
   document.getElementById('paste-panel').style.display   = 'block';
   document.getElementById('meta-saved').style.display    = 'none';
@@ -434,11 +439,14 @@ function combineVariants() {
 }
 
 function updateVariantButtons() {
-  // Schedules are locked after parse; variant/combine editing controls remain hidden.
   const addBtn  = document.getElementById('btn-add-variant');
   const combBtn = document.getElementById('btn-combine-variants');
-  if (addBtn)  addBtn.style.display  = 'none';
-  if (combBtn) combBtn.style.display = 'none';
+  const isSup   = SUP_ROLES.includes(currentUser.role);
+  // "Add Variant" shows for supervisors/managers/admins once a schedule is loaded,
+  // so they can paste a second line's orders to build a combined schedule.
+  if (addBtn)  addBtn.style.display  = (scheduleItems.length > 0 && isSup) ? '' : 'none';
+  // "Combine Variants" shows only when 2+ variant pastes have been done (pre-combine)
+  if (combBtn) combBtn.style.display = (variantSources.length >= 2 && isSup) ? '' : 'none';
 }
 
 // ── Role & campus tab visibility ──
@@ -464,6 +472,152 @@ function _applyRoleVisibility() {
   ['stab-bent_rx','stab-lumber_rx'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = campus === 'RX' ? '' : 'none'; });
   const vas = document.getElementById('view-as-select');
   if (vas) vas.style.display = role === 'admin' ? '' : 'none';
+  // Test mode button — only shown to real admins (not during a test session itself)
+  const tmBtn = document.getElementById('btn-test-mode');
+  if (tmBtn) tmBtn.style.display = (currentUser._realRole === 'admin' || (!currentUser._realRole && currentUser.role === 'admin')) ? '' : 'none';
+}
+
+// ── Test Mode: impersonate any role + campus without logging out ──
+let _testModeActive = false;
+
+function openTestModeModal() {
+  // Only real admins can open this
+  const realRole = currentUser._realRole || currentUser.role;
+  if (realRole !== 'admin') return;
+
+  let modal = document.getElementById('modal-test-mode');
+  if (!modal) {
+    const allRoles = [
+      { value: 'supervisor',       label: 'Supervisor' },
+      { value: 'manager',          label: 'Manager' },
+      { value: 'admin',            label: 'Admin' },
+      { value: 'area_leader',      label: 'Area Leader' },
+      { value: 'box_handler',      label: 'Box Handler' },
+      { value: 'lumber_handler',   label: 'Lumber Handler' },
+      { value: 'hardware_handler', label: 'Hardware Handler' },
+      { value: 'bending_handler',  label: 'Bending Handler' },
+      { value: 'slings_handler',   label: 'Slings Handler' },
+    ];
+    const roleOpts = allRoles.map(r => `<option value="${r.value}">${r.label}</option>`).join('');
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-bd" id="modal-test-mode">
+        <div class="modal" style="max-width:400px;">
+          <div class="modal-title">🧪 Test Mode</div>
+          <div class="modal-sub">Impersonate a role and campus to verify what each user sees. No data is written.</div>
+          <div class="field-group">
+            <label class="field-label">Role to test</label>
+            <select class="select" id="tm-role">${roleOpts}</select>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Campus to test</label>
+            <select class="select" id="tm-campus">
+              <option value="SY">Syracuse (SY)</option>
+              <option value="RX">Roxboro (RX)</option>
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal('modal-test-mode')">Cancel</button>
+            <button class="btn btn-primary" onclick="applyTestMode()">Enter Test Mode</button>
+          </div>
+        </div>
+      </div>`);
+  }
+  // Pre-fill with current values
+  const roleEl = document.getElementById('tm-role');
+  const campusEl = document.getElementById('tm-campus');
+  if (roleEl) roleEl.value = currentUser.role;
+  if (campusEl) campusEl.value = currentUser.campus;
+  document.getElementById('modal-test-mode').classList.add('open');
+}
+
+function applyTestMode() {
+  const role      = document.getElementById('tm-role').value;
+  const campus    = document.getElementById('tm-campus').value;
+  const roleLabel = role.replace(/_/g, ' ');   // ← declared here so all code below can use it
+  closeModal('modal-test-mode');
+
+  // Save real identity on first entry
+  if (!currentUser._realRole) {
+    currentUser._realRole   = currentUser.role;
+    currentUser._realCampus = currentUser.campus;
+    currentUser._realName   = currentUser.name;
+  }
+
+  currentUser.role   = role;
+  currentUser.campus = campus;
+  _testModeActive = true;
+  activeViewAs = '';
+
+  // Reset shortage tab to the correct campus default so RX tabs don't show SY data
+  if (campus === 'RX') {
+    activeShortageTab = 'bent_rx';
+  } else {
+    activeShortageTab = 'bent';
+  }
+
+  // Update header display
+  document.getElementById('hdr-role').textContent = ('🧪 ' + roleLabel);
+  const pill = document.getElementById('campus-pill');
+  pill.textContent  = campus;
+  pill.className    = 'campus-pill campus-' + campus;
+
+  // Show test banner
+  _ensureTestModeBanner();
+  const banner = document.getElementById('test-mode-banner');
+  if (banner) {
+    banner.classList.add('active');
+    banner.innerHTML = `<span class="test-mode-label">🧪 TEST MODE</span><span class="test-mode-chip">${roleLabel}</span><span class="test-mode-chip">${campus}</span><button class="test-mode-exit" onclick="exitTestMode()">✕ Exit Test Mode</button>`;
+  }
+
+  // Re-apply all visibility and reload shortages for new campus
+  _applyRoleVisibility();
+  loadShortages(true);
+
+  // If the test role is a material handler, show that view; otherwise show normal schedule
+  if (MAT_ROLES.includes(role)) {
+    showPage('schedule');
+    showMatHandlerView(role);
+  } else {
+    showPage('schedule');
+    render();
+  }
+
+  toast(`Testing as ${roleLabel} on ${campus}`, 'info');
+}
+
+function exitTestMode() {
+  if (!currentUser._realRole) return;
+  const wasRxTest = currentUser.campus === 'RX' && currentUser._realCampus !== 'RX';
+  currentUser.role   = currentUser._realRole;
+  currentUser.campus = currentUser._realCampus;
+  delete currentUser._realRole;
+  delete currentUser._realCampus;
+  _testModeActive = false;
+  activeViewAs = '';
+
+  // Reset shortage tab back to real campus default
+  activeShortageTab = currentUser.campus === 'RX' ? 'bent_rx' : 'bent';
+
+  document.getElementById('hdr-role').textContent = currentUser.role.replace(/_/g, ' ');
+  const pill = document.getElementById('campus-pill');
+  pill.textContent = currentUser.campus;
+  pill.className   = 'campus-pill campus-' + currentUser.campus;
+
+  const banner = document.getElementById('test-mode-banner');
+  if (banner) banner.classList.remove('active');
+
+  _applyRoleVisibility();
+  loadShortages(true);
+  render();
+  toast('Exited test mode — back to admin view', 'ok');
+}
+
+function _ensureTestModeBanner() {
+  if (document.getElementById('test-mode-banner')) return;
+  const liveBanner = document.getElementById('live-banner');
+  if (liveBanner) {
+    liveBanner.insertAdjacentHTML('afterend', `<div id="test-mode-banner"></div>`);
+  }
 }
 
 
@@ -754,7 +908,21 @@ async function loadWarrantyMgr() {
 function _renderInspections(rows) {
   const el = document.getElementById('wm-inspections');
   if (!rows.length) { el.innerHTML = '<div style="color:var(--text-dim);padding:16px;">No pending inspections.</div>'; return; }
-  el.innerHTML = rows.map(r => `
+
+  // Dedupe by order_number — keep only the most recent row per order.
+  // Duplicates can arise from: double-clicks before the upsert check fires,
+  // multiple users on the same cell, or legacy rows from before the upsert fix.
+  const seen = new Map(); // order_number → row (most recent wins)
+  rows.forEach(r => {
+    const key = r.order_number ? String(r.order_number).toUpperCase() : r.id;
+    const existing = seen.get(key);
+    if (!existing || new Date(r.created_at) > new Date(existing.created_at)) {
+      seen.set(key, r);
+    }
+  });
+  const deduped = Array.from(seen.values());
+
+  el.innerHTML = deduped.map(r => `
     <div class="wm-row is-inspect">
       <div style="flex:1;min-width:0;">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -774,7 +942,22 @@ function _renderInspections(rows) {
 
 async function clearInspection(id, btn) {
   btn.disabled = true; btn.textContent = 'Saving…';
-  await sb(`sts_inspection_queue?id=eq.${id}`, 'PATCH', { status: 'inspected', inspected_by: currentUser.name, inspected_at: new Date().toISOString() }).catch(() => {});
+  // Mark this specific row inspected, and also clean up any duplicate pending rows
+  // for the same order_number so stale duplicates don't resurface.
+  try {
+    const row = await sb(`sts_inspection_queue?id=eq.${id}&select=order_number,campus`).catch(() => []);
+    await sb(`sts_inspection_queue?id=eq.${id}`, 'PATCH', {
+      status: 'inspected', inspected_by: currentUser.name, inspected_at: new Date().toISOString()
+    }).catch(() => {});
+    // Also clear any other pending rows for the same order on this campus (duplicates)
+    if (row && row[0]?.order_number) {
+      await sb(
+        `sts_inspection_queue?order_number=eq.${encodeURIComponent(row[0].order_number)}&campus=eq.${row[0].campus}&status=eq.pending&id=neq.${id}`,
+        'PATCH',
+        { status: 'inspected', inspected_by: currentUser.name, inspected_at: new Date().toISOString() }
+      ).catch(() => {});
+    }
+  } catch(e) { /* silent */ }
   toast('Marked inspected', 'ok');
   loadWarrantyMgr();
 }
