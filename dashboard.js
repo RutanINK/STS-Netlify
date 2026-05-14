@@ -22,11 +22,14 @@ async function loadDashboard() {
     allItems.forEach(it => { taktBySchedule[it.schedule_id] = (taktBySchedule[it.schedule_id] || 0) + parseFloat(it.takt_minutes || 0); });
 
     dashData = {};
-    for (let n = 1; n <= 58; n++) {
+    const campusCellNums = (typeof BUILDINGS !== 'undefined' && BUILDINGS)
+      ? Object.values(BUILDINGS).flatMap(b => b.cells || [])
+      : Array.from({ length: 58 }, (_, i) => i + 1);
+    campusCellNums.forEach(n => {
       const cn = 'Cell ' + String(n).padStart(2, '0'), cns = cn + ' - Secondary', bldg = cellBuilding(n);
       dashData[cn]  = { cell: cn,  mins: 0, submitted: null, by: null, building: bldg, isSecondary: false };
       dashData[cns] = { cell: cns, mins: 0, submitted: null, by: null, building: bldg, isSecondary: true  };
-    }
+    });
 
     Object.values(latestByCell).forEach(s => {
       const mins = taktBySchedule[s.id] || 0;
@@ -62,7 +65,12 @@ function renderDashboard() {
 
   if (cellChart) cellChart.destroy();
   const ctx    = document.getElementById('chart-cells').getContext('2d');
-  const sorted = [...cells].sort((a, b) => a.cell.localeCompare(b.cell));
+  const sorted = [...cells].sort((a, b) => {
+    const br = (typeof _buildingRank === 'function' ? _buildingRank(a.building) : 999) - (typeof _buildingRank === 'function' ? _buildingRank(b.building) : 999);
+    if (br) return br;
+    if (typeof _cellSortRank === 'function') return _cellSortRank(a) - _cellSortRank(b);
+    return a.cell.localeCompare(b.cell);
+  });
   cellChart = new Chart(ctx, {
     type: 'bar',
     data: {

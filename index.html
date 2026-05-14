@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Supply Team Schedule</title>
+<title>STS — Supply Team Schedule</title>
 <link rel="icon" href="data:,">  <!-- suppresses favicon 404 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="styles.css">
@@ -56,10 +56,10 @@
     <span class="campus-pill" id="campus-pill">SY</span>
     <nav class="nav-tabs">
       <button class="nav-tab active" onclick="showPage('schedule')" id="tab-schedule">Schedule</button>
-      <button class="nav-tab" onclick="showPage('mycells')" id="tab-mycells">My Cells</button>
+      <button class="nav-tab" onclick="showPage('mycells')" id="tab-mycells" style="display:none">My Cells</button>
       <button class="nav-tab" onclick="showPage('board')" id="tab-board">Live Board</button>
       <button class="nav-tab" onclick="showPage('shortages')" id="tab-shortages">Shortages</button>
-      <button class="nav-tab" onclick="showPage('bom')" id="tab-bom">BOM</button>
+      <button class="nav-tab" onclick="showPage('bom')" id="tab-bom" style="display:none">BOM</button>
       <button class="nav-tab" onclick="showPage('blacklist')" id="tab-blacklist" style="display:none">Blacklist</button>
       <button class="nav-tab" onclick="showPage('dashboard')" id="tab-dashboard" style="display:none">Dashboard</button>
       <button class="nav-tab" onclick="showPage('warrantymgr')" id="tab-warrantymgr" style="display:none">Warranty &amp; Repl.</button>
@@ -103,11 +103,6 @@
 <div id="page-schedule" class="page" style="display:none;">
   <div class="paste-panel" id="paste-panel">
     <div class="panel-title">Paste Raw Sabertooth Data</div>
-    <!-- My Cells quick-load — shown when user has cells saved -->
-    <div id="sched-mycells-strip" style="display:none;margin-bottom:10px;">
-      <div style="font-size:var(--fs-xs);color:var(--text-muted);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Quick Load My Cell</div>
-      <div id="sched-mycells-btns" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
-    </div>
     <textarea id="raw-input" placeholder="Paste Sabertooth schedule data here…"></textarea>
     <div class="paste-row">
       <button class="btn btn-primary btn-sm" id="btn-parse">Parse Schedule</button>
@@ -125,10 +120,13 @@
     <div class="sched-actions">
       <button class="btn btn-ghost btn-sm" id="btn-add-variant" style="display:none;" onclick="openAddVariant()">+ Add Variant</button>
       <button class="btn btn-ghost btn-sm" id="btn-combine-variants" style="display:none;" onclick="combineVariants()">Combine Variants</button>
+      <button class="btn btn-primary btn-sm" id="btn-auto-sort" onclick="autoSortLikeSkus()">Auto Sort</button>
       <button class="btn btn-ghost btn-sm" id="btn-clear">Clear</button>
       <button class="btn btn-ghost btn-sm" id="btn-handoff">Handoff</button>
       <button class="btn btn-ghost btn-sm" id="btn-load-warranty-current">Load Warranties</button>
       <button class="btn btn-ghost btn-sm" id="btn-print">Print</button>
+      <button class="btn btn-down btn-sm" id="btn-sched-mdown" onclick="openMachineDownFromSchedule()" style="display:none;">🔴 Machine Down</button>
+      <button class="btn btn-success btn-sm" id="btn-sched-cleardown" onclick="openClearMachineDownFromSchedule()" style="display:none;">✅ Clear Down</button>
       <button class="btn btn-success btn-sm" id="btn-save">Save</button>
     </div>
   </div>
@@ -156,9 +154,11 @@
     <div class="mycells-title">My Cells</div>
     <button class="btn btn-ghost btn-sm" onclick="openManageCells()">Manage My Cells</button>
   </div>
-  <!-- My cells list with quick-load buttons -->
-  <div id="mycells-cards" style="padding:0 26px;display:flex;flex-wrap:wrap;gap:10px;margin-bottom:18px;"></div>
-  <!-- Schedule view for selected cell -->
+  <div id="mycells-cards" style="padding:0 26px;display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;"></div>
+  <div id="mycells-actions" style="padding:0 26px 10px;display:none;gap:8px;flex-wrap:wrap;align-items:center;">
+    <button class="btn btn-down btn-sm" onclick="openMachineDownFromMyCells()">🔴 Machine Down</button>
+    <button class="btn btn-success btn-sm" id="btn-mycell-cleardown" onclick="openClearMachineDownFromMyCells()" style="display:none;">✅ Clear Machine Down</button>
+  </div>
   <div id="mycells-info" style="padding:0 26px 6px;font-size:var(--fs-sm);color:var(--text-muted);display:none;"></div>
   <div id="mycells-list" style="padding:0 26px 26px;display:flex;flex-direction:column;gap:10px;">
     <div style="color:var(--text-dim);padding:40px;text-align:center;">Select a cell above to view its current schedule.</div>
@@ -308,6 +308,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <div class="sh-tabs">
         <button class="sh-tab active" onclick="switchShortageTab('bent')"      id="stab-bent">Bent Parts (SY)</button>
+        <button class="sh-tab"        onclick="switchShortageTab('bent_rx')"   id="stab-bent_rx">Bent Parts (RX)</button>
         <button class="sh-tab"        onclick="switchShortageTab('lumber_sy')" id="stab-lumber_sy">Lumber (SY)</button>
         <button class="sh-tab"        onclick="switchShortageTab('lumber_rx')" id="stab-lumber_rx">Lumber (RX)</button>
       </div>
@@ -396,15 +397,61 @@
 </div>
 
 <!-- ══ MODALS ══ -->
+
+<!-- Machine Down — report -->
 <div class="modal-bd" id="modal-mdown">
-  <div class="modal" style="border-color:var(--red);">
-    <div class="modal-title" style="color:var(--red);">Report Machine Down</div>
+  <div class="modal" style="border-color:var(--red);max-width:480px;">
+    <div class="modal-title" style="color:var(--red);">🔴 Report Machine Down</div>
     <div class="modal-sub" id="mdown-cell-label">Cell —</div>
-    <div class="field-group"><label class="field-label">Issue description (optional)</label><textarea class="input" id="mdown-note" rows="3" style="resize:vertical;height:auto;" placeholder="e.g. Hydraulic press failure, waiting on maintenance…"></textarea></div>
+    <div class="field-group">
+      <label class="field-label">Reason <span style="color:var(--red);">*</span></label>
+      <select class="select" id="mdown-reason" style="width:100%;" onchange="onMdownReasonChange(this.value)">
+        <option value="">— Select a reason —</option>
+        <option value="Mechanical failure">Mechanical failure</option>
+        <option value="Hydraulic issue">Hydraulic issue</option>
+        <option value="Electrical / controls issue">Electrical / controls issue</option>
+        <option value="Tooling / fixture change">Tooling / fixture change</option>
+        <option value="Material shortage">Material shortage</option>
+        <option value="Safety concern">Safety concern</option>
+        <option value="Waiting on maintenance">Waiting on maintenance</option>
+        <option value="Changeover">Changeover</option>
+        <option value="Other">Other (describe below)</option>
+      </select>
+    </div>
+    <div class="field-group" id="mdown-note-group" style="display:none;">
+      <label class="field-label">Additional details</label>
+      <textarea class="input" id="mdown-note" rows="2" style="resize:vertical;height:auto;" placeholder="Describe the issue…"></textarea>
+    </div>
     <div class="field-group"><label class="field-label">Reported by</label><input class="input" id="mdown-reporter" readonly></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-mdown')">Cancel</button>
-      <button class="btn btn-danger" id="btn-mdown-send" onclick="sendMachineDown()">Send Alert</button>
+      <button class="btn btn-danger" id="btn-mdown-send" onclick="sendMachineDown()" disabled>🔴 Send Alert</button>
+    </div>
+  </div>
+</div>
+
+<!-- Machine Down — clear -->
+<div class="modal-bd" id="modal-mdown-clear">
+  <div class="modal" style="border-color:var(--green);max-width:440px;">
+    <div class="modal-title" style="color:var(--green);">✅ Clear Machine Down</div>
+    <div class="modal-sub" id="mdown-clear-cell-label">Cell —</div>
+    <div class="field-group">
+      <label class="field-label">How was it resolved? <span style="color:var(--red);">*</span></label>
+      <select class="select" id="mdown-clear-reason" style="width:100%;" onchange="document.getElementById('btn-mdown-clear-send').disabled=!this.value">
+        <option value="">— Select resolution —</option>
+        <option value="Maintenance completed">Maintenance completed</option>
+        <option value="Issue self-resolved">Issue self-resolved</option>
+        <option value="Parts replaced">Parts replaced</option>
+        <option value="Operator corrected">Operator corrected</option>
+        <option value="Safety concern cleared">Safety concern cleared</option>
+        <option value="Workaround in place">Workaround in place</option>
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="field-group"><label class="field-label">Cleared by</label><input class="input" id="mdown-clear-reporter" readonly></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-mdown-clear')">Cancel</button>
+      <button class="btn btn-success" id="btn-mdown-clear-send" onclick="clearMachineDown()" disabled>✅ Clear Machine Down</button>
     </div>
   </div>
 </div>

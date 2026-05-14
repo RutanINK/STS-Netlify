@@ -16,6 +16,7 @@ let bomFinishedSkuSet = new Set();
 let bomExactParentKeys = false;
 let bomSource = 'none'; // none | local | supabase
 let bomStorageMeta = null; // { name, updated_at, created_at, size }
+let bomSourceFiles = []; // [{ name, type, rows, exactParentKeys, updated_at, size }]
 
 function _bomEsc(str) {
   return String(str ?? '')
@@ -80,14 +81,9 @@ function _skuLookupKeys(value) {
 
   if (!raw) return keys;
 
-  // New reliable BOM format is color-specific. Do not add the base SKU key.
-  // Example: 4410X-VSH must not match BOM rows for 4410X-NTL.
-  if (bomExactParentKeys) {
-    [raw, _bomKey(raw)].forEach(k => { if (k) keys.add(k); });
-    return keys;
-  }
-
-  // Legacy BOM format is base-SKU-based, so keep the old color-collapsing behavior.
+  // Lookup should be broad, while ingestion decides whether exact parent keys
+  // or legacy color-collapsed keys are written to bomMap. This lets a full BOM
+  // and a bent-only correlation file coexist without false color matches.
   const base = _skuBaseForBOM(raw);
   [raw, base, _bomKey(raw), _bomKey(base)].forEach(k => { if (k) keys.add(k); });
   return keys;
@@ -133,7 +129,7 @@ function _componentCandidatesForShortageRow(componentSku, finishedSku, shortageR
         if (base) candidates.add(_bomKey(base + lumberColor));
       }
     }
-  } else if (category === 'bent') {
+  } else if (category.startsWith('bent')) {
     if (!_componentHasColorSuffix(componentRaw)) {
       candidates.add(_bomKey(componentRaw + finishedColor));
     }
@@ -154,7 +150,7 @@ function loadBOMFromFile(file) {
     const reader = new FileReader();
     reader.onload = e => {
       try {
-        _parseBOMCSV(e.target.result);
+        _parseBOMCSV(e.target.result, { reset: true, type: 'bom', name: file?.name || 'local upload', size: file?.size || null });
         bomSource = 'local';
         bomStorageMeta = {
           name: file?.name || 'local upload',
@@ -170,11 +166,62 @@ function loadBOMFromFile(file) {
   });
 }
 
+function loadBentCorrelationFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        _parseBOMCSV(e.target.result, { reset: false, type: 'bent', name: file?.name || 'bent correlation upload', size: file?.size || null });
+        bomSource = bomSource === 'supabase' ? 'supabase' : 'local';
+        bomStorageMeta = {
+          name: 'bom_latest.csv + bent_correlation_latest.csv',
+          updated_at: new Date().toISOString(),
+          created_at: null,
+          size: null,
+        };
+        resolve(getBOMStats() || { components: 0, finishedSkus: 0, rows: 0 });
+      } catch(err) { reject(err); }
+    };
+    reader.onerror = () => reject(new Error('Failed to read bent correlation file'));
+    reader.readAsText(file);
+  });
+}
+
 async function loadBOMFromSupabase() {
-  let listedFile = null;
+  let files = [];
+
+  function _storageMetaFor(name) {
+    return Array.isArray(files) ? files.find(f => f.name === name) : null;
+  }
+
+  async function _fetchStorageObject(name) {
+    // Public bucket URL first.
+    let r = await fetch(
+      `${SB_URL}/storage/v1/object/public/sts-bom/${name}?apikey=${encodeURIComponent(SB_KEY)}`,
+      { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } }
+    );
+
+    // Private bucket fallback if anon storage policies allow object reads.
+    if (!r.ok) {
+      console.warn(`${name} public fetch failed:`, await r.text().catch(() => r.statusText));
+      r = await fetch(
+        `${SB_URL}/storage/v1/object/sts-bom/${name}?apikey=${encodeURIComponent(SB_KEY)}`,
+        { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } }
+      );
+    }
+
+    if (!r.ok) {
+      console.warn(`${name} authenticated fetch failed:`, await r.text().catch(() => r.statusText));
+      return null;
+    }
+
+    return await r.text();
+  }
 
   try {
-    // Try bucket listing for metadata. If blocked by policy, still try known file path.
+    _resetBOMMaps();
+
+    // Try bucket listing for metadata. If blocked by policy, still try known file paths.
     try {
       const checkRes = await fetch(
         `${SB_URL}/storage/v1/object/list/sts-bom?apikey=${encodeURIComponent(SB_KEY)}`,
@@ -185,46 +232,30 @@ async function loadBOMFromSupabase() {
             'Authorization': 'Bearer ' + SB_KEY,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ prefix: '', limit: 25 }),
+          body: JSON.stringify({ prefix: '', limit: 50 }),
         }
       );
 
-      if (checkRes.ok) {
-        const files = await checkRes.json();
-        listedFile = Array.isArray(files) ? files.find(f => f.name === 'bom_latest.csv') : null;
-      } else {
-        console.warn('BOM bucket list failed:', await checkRes.text().catch(() => checkRes.statusText));
-      }
+      if (checkRes.ok) files = await checkRes.json();
+      else console.warn('BOM bucket list failed:', await checkRes.text().catch(() => checkRes.statusText));
     } catch (e) {
       console.warn('BOM bucket list unavailable:', e.message);
     }
 
-    // Public bucket URL first.
-    let r = await fetch(
-      `${SB_URL}/storage/v1/object/public/sts-bom/bom_latest.csv?apikey=${encodeURIComponent(SB_KEY)}`,
-      { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } }
-    );
+    const coreText = await _fetchStorageObject('bom_latest.csv');
+    if (coreText) _parseBOMCSV(coreText, { reset: false, type: 'bom', name: 'bom_latest.csv', meta: _storageMetaFor('bom_latest.csv') });
 
-    // Private bucket fallback if anon storage policies allow object reads.
-    if (!r.ok) {
-      console.warn('BOM public fetch failed:', await r.text().catch(() => r.statusText));
-      r = await fetch(
-        `${SB_URL}/storage/v1/object/sts-bom/bom_latest.csv?apikey=${encodeURIComponent(SB_KEY)}`,
-        { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } }
-      );
-    }
+    const bentText = await _fetchStorageObject('bent_correlation_latest.csv');
+    if (bentText) _parseBOMCSV(bentText, { reset: false, type: 'bent', name: 'bent_correlation_latest.csv', meta: _storageMetaFor('bent_correlation_latest.csv') });
 
-    if (!r.ok) {
-      console.warn('BOM authenticated fetch failed:', await r.text().catch(() => r.statusText));
-      bomSource = bomLoaded ? bomSource : 'none';
-      bomStorageMeta = listedFile || null;
+    if (!bomLoaded) {
+      bomSource = 'none';
+      bomStorageMeta = null;
       return false;
     }
 
-    const text = await r.text();
-    _parseBOMCSV(text);
     bomSource = 'supabase';
-    bomStorageMeta = listedFile || { name: 'bom_latest.csv', updated_at: null, created_at: null, size: null };
+    bomStorageMeta = { name: bomSourceFiles.map(f => f.name).join(' + '), updated_at: null, created_at: null, size: null };
     return true;
   } catch(e) {
     console.warn('BOM storage check failed:', e.message);
@@ -233,33 +264,39 @@ async function loadBOMFromSupabase() {
   }
 }
 
-function _parseBOMCSV(text) {
+function _resetBOMMaps() {
   bomMap = {};
   bomRowCount = 0;
   bomFinishedSkuSet = new Set();
   bomExactParentKeys = false;
+  bomLoaded = false;
+  bomSourceFiles = [];
+}
+
+function _parseBOMCSV(text, options = {}) {
+  const reset = options.reset !== false;
+  if (reset) _resetBOMMaps();
 
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (!lines.length) throw new Error('Empty CSV');
 
-  const delim = lines[0].includes('\t') ? '\t' : ',';
+  const delim = lines[0].includes('	') ? '	' : ',';
   const headers = lines[0].split(delim).map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
 
   // Old Databricks export
   let targetIdx = headers.findIndex(h => h === 'target_base_sku');
   let consumIdx = headers.findIndex(h => h === 'consum_part');
 
-  // New reliable export
+  // New reliable export / bent correlation export
   const newTargetIdx = headers.findIndex(h => h === 'parentbom_itemcode');
   const newConsumIdx = headers.findIndex(h => h === 'consumedpartcd');
+  let sourceExactParentKeys = false;
 
   if (targetIdx === -1 && newTargetIdx !== -1) {
     targetIdx = newTargetIdx;
-    bomExactParentKeys = true;
+    sourceExactParentKeys = true;
   }
-  if (consumIdx === -1 && newConsumIdx !== -1) {
-    consumIdx = newConsumIdx;
-  }
+  if (consumIdx === -1 && newConsumIdx !== -1) consumIdx = newConsumIdx;
 
   if (targetIdx === -1 || consumIdx === -1) {
     throw new Error(
@@ -267,6 +304,8 @@ function _parseBOMCSV(text) {
       `Need either TARGET_Base_Sku + CONSUM_PART, or ParentBOM_ItemCode + ConsumedPartCD.`
     );
   }
+
+  let rowsAdded = 0;
 
   for (let i = 1; i < lines.length; i++) {
     const cols = _splitCSVLine(lines[i], delim);
@@ -278,9 +317,8 @@ function _parseBOMCSV(text) {
 
     if (!bomMap[comp]) bomMap[comp] = new Set();
 
-    if (bomExactParentKeys) {
-      // New BOM is color-specific. Store exact parent keys only.
-      // This prevents 4410X-VSH from matching components that belong to 4410X-NTL.
+    if (sourceExactParentKeys) {
+      // New BOM / bent correlation is color-specific. Store exact parent keys only.
       bomMap[comp].add(target);
       bomMap[comp].add(_bomKey(target));
     } else {
@@ -289,9 +327,24 @@ function _parseBOMCSV(text) {
     }
 
     bomRowCount++;
+    rowsAdded++;
   }
 
+  bomExactParentKeys = bomExactParentKeys || sourceExactParentKeys;
   bomLoaded = Object.keys(bomMap).length > 0;
+
+  if (options.name || options.type) {
+    const meta = options.meta || {};
+    bomSourceFiles.push({
+      name: options.name || meta.name || (options.type === 'bent' ? 'bent correlation upload' : 'bom upload'),
+      type: options.type || 'bom',
+      rows: rowsAdded,
+      exactParentKeys: sourceExactParentKeys,
+      updated_at: meta.updated_at || options.updated_at || new Date().toISOString(),
+      created_at: meta.created_at || null,
+      size: meta.metadata?.size || meta.size || options.size || null,
+    });
+  }
 }
 
 function _splitCSVLine(line, delim) {
@@ -391,7 +444,7 @@ function getBOMStats() {
   if (!bomLoaded) return null;
   const components = Object.keys(bomMap).length;
   const finishedSkus = bomFinishedSkuSet.size || new Set(Object.values(bomMap).flatMap(s => [...s])).size;
-  return { components, finishedSkus, rows: bomRowCount, source: bomSource, storage: bomStorageMeta, exactParentKeys: bomExactParentKeys };
+  return { components, finishedSkus, rows: bomRowCount, source: bomSource, storage: bomStorageMeta, exactParentKeys: bomExactParentKeys, files: bomSourceFiles };
 }
 
 function runBOMLookup(query) {
@@ -456,6 +509,39 @@ async function uploadBOMToSupabase(file) {
   } catch(e) {
     console.warn('BOM upload failed:', e.message);
     bomSource = 'local';
+    return false;
+  }
+}
+
+
+async function uploadBentCorrelationToSupabase(file) {
+  try {
+    const r = await fetch(`${SB_URL}/storage/v1/object/sts-bom/bent_correlation_latest.csv?apikey=${encodeURIComponent(SB_KEY)}`, {
+      method: 'POST',
+      headers: {
+        'apikey': SB_KEY,
+        'Authorization': 'Bearer ' + SB_KEY,
+        'Content-Type': 'text/csv',
+        'x-upsert': 'true',
+      },
+      body: file,
+    });
+
+    if (r.ok) {
+      bomSource = 'supabase';
+      const existing = bomSourceFiles.filter(f => f.name !== 'bent_correlation_latest.csv');
+      existing.push({ name: 'bent_correlation_latest.csv', type: 'bent', rows: 0, exactParentKeys: true, updated_at: new Date().toISOString(), size: file?.size || null });
+      bomSourceFiles = existing;
+      bomStorageMeta = { name: bomSourceFiles.map(f => f.name).join(' + '), updated_at: new Date().toISOString(), created_at: null, size: null };
+      return true;
+    }
+
+    console.warn('Bent correlation upload failed:', await r.text().catch(() => r.statusText));
+    bomSource = bomSource === 'supabase' ? 'supabase' : 'local';
+    return false;
+  } catch(e) {
+    console.warn('Bent correlation upload failed:', e.message);
+    bomSource = bomSource === 'supabase' ? 'supabase' : 'local';
     return false;
   }
 }

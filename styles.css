@@ -689,57 +689,84 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
 .blacklist-setup{background:var(--surface);border:1px solid var(--yellow);border-radius:var(--radius);padding:20px 22px;margin-top:12px;}
 .sql-snippet{white-space:pre-wrap;background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:12px;font-family:var(--mono);font-size:12px;color:var(--text);overflow:auto;}
 
-/* ── My Cells — machine down indicator ── */
-.mycell-card-btn.mycell-down{border-color:var(--red);color:var(--red);background:var(--red-dim);}
-.mycell-down-dot{color:var(--red);font-size:10px;vertical-align:middle;}
-#mycells-actions{align-items:center;}
+/* ══════════════════════════════════════
+   DUE DATE INLINE BADGES — consistent visual weight for all tiers
+   ══════════════════════════════════════ */
+.due-badge {
+  display:inline-flex; align-items:center;
+  font-family:var(--mono); font-size:11px; font-weight:700;
+  padding:4px 10px; border-radius:var(--radius-sm);
+  white-space:nowrap; flex-shrink:0;
+  letter-spacing:.01em; border-width:2px; border-style:solid;
+}
+/* >2 days out — subtle */
+.db-future { background:var(--surface3); color:var(--text-muted); border-color:var(--border2); border-width:1px; }
+/* 2–3 days out — green */
+.db-green  { background:#052010; color:var(--green); border-color:var(--green); }
+/* 1 day out — yellow */
+.db-yellow { background:var(--yellow-dim); color:var(--yellow); border-color:var(--yellow); }
+/* Today — orange */
+.db-orange { background:#1c1000; color:var(--orange); border-color:var(--orange); }
+/* Yesterday / 1d — light red */
+.db-red1   { background:#250a0a; color:#f87171; border-color:#f87171; }
+/* 2–3d past — pulsing red */
+.db-red2   { background:var(--red-dim); color:var(--red); border-color:var(--red);
+             animation:db-pulse 1.5s ease-in-out infinite; }
+/* 4d+ past — solid bright red, fast pulse */
+.db-red3   { background:#ef4444; color:#fff; border-color:#fca5a5;
+             animation:db-pulse-hard .9s ease-in-out infinite; }
+@keyframes db-pulse      { 0%,100%{opacity:1;}        50%{opacity:.5;} }
+@keyframes db-pulse-hard { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:.78;transform:scale(.97);} }
 
-/* ── Manage Cells Modal — section layout ── */
-.manage-cells-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);}
+/* Card left-border urgency */
+.sku-card.is-due-tomorrow { border-left:4px solid var(--yellow); }
+.sku-card.is-due-today    { border-left:4px solid var(--orange); }
+.sku-card.is-pastdue      { border-left:4px solid var(--red); }
+.sku-card.mat-complete    { border-left:4px solid var(--green); }
 
-/* ── Schedule History modal ── */
-.sched-hist-row{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;gap:10px;}
-.sched-hist-left{display:flex;flex-direction:column;gap:2px;}
-.sched-hist-time{font-family:var(--mono);font-size:var(--fs-sm);font-weight:600;color:var(--text);}
-.sched-hist-by{font-size:var(--fs-xs);color:var(--text-muted);}
+/* Group headers — colored for urgent tiers */
+.due-group-header.due-group-soon    { color:var(--yellow); }
+.due-group-header.due-group-today   { color:var(--orange); font-weight:800; }
+.due-group-header.due-group-overdue { color:var(--red);    font-weight:800; }
 
-/* ── Save Blocker Modal ── */
-.save-block-section{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
-.save-block-section-title{font-size:13px;font-weight:700;margin-bottom:4px;}
-.save-block-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs);}
-.save-block-row:last-child{border-bottom:none;}
-.save-block-order{font-family:var(--mono);font-weight:700;color:var(--red);}
-.save-block-sku{font-family:var(--mono);color:var(--text-muted);}
-.save-block-qty{font-family:var(--mono);font-size:11px;color:var(--text-dim);}
-.save-block-detail{font-family:var(--mono);font-size:12px;color:var(--orange);}
-.save-block-note{font-size:11px;color:var(--text-muted);font-style:italic;}
+/* Changeover divider */
+.changeover-divider {
+  display:flex; align-items:center; gap:10px;
+  padding:16px 0 8px; color:var(--text-dim);
+  font-size:11px; font-family:var(--mono); font-weight:700;
+  text-transform:uppercase; letter-spacing:.1em;
+}
+.changeover-divider::before,.changeover-divider::after { content:''; flex:1; height:1px; background:var(--border); }
+.changeover-divider span {
+  white-space:nowrap; padding:3px 10px;
+  border:1px solid var(--border); border-radius:20px; background:var(--surface2);
+}
 
-/* ── Machine Down reason dropdown ── */
-#mdown-note-group textarea{font-size:var(--fs-sm);}
+/* Material event progress badges on cards */
+.card-mat-events {
+  display:flex; flex-wrap:wrap; gap:5px;
+  margin-top:6px; padding-top:6px; border-top:1px dashed var(--border);
+}
+.mat-event-badge {
+  display:inline-flex; align-items:center;
+  font-family:var(--mono); font-size:10px; font-weight:700;
+  padding:3px 8px; border-radius:var(--radius-sm); white-space:nowrap;
+}
+.mat-event-pulled    { background:#0f2044; color:#60a5fa; border:1px solid #1e3a6e; }
+.mat-event-prepped   { background:#1c1500; color:#eab308; border:1px solid #3a2d00; }
+.mat-event-delivered { background:#052010; color:#22c55e; border:1px solid #0a4020; }
+/* Auto Sort is intentionally prominent on the schedule toolbar. */
+#btn-auto-sort{font-weight:800;letter-spacing:.02em;}
 
-/* ── My Cells — machine down state ── */
-.mycell-card-btn.mycell-down{border-color:var(--red);color:var(--red);background:var(--red-dim);}
-.mycell-down-dot{color:var(--red);font-size:10px;vertical-align:middle;margin-right:2px;}
-#mycells-actions{display:flex;align-items:center;}
+.due-badge-order{font-size:10px;padding:2px 7px;border-width:1px;}
 
-/* ── Schedule History modal ── */
-.sched-hist-row{display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;gap:10px;}
-.sched-hist-left{display:flex;flex-direction:column;gap:2px;}
-.sched-hist-time{font-family:var(--mono);font-size:var(--fs-sm);font-weight:600;color:var(--text);}
-.sched-hist-by{font-size:var(--fs-xs);color:var(--text-muted);}
-
-/* ── Save Blocker Modal ── */
-.save-block-section{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
-.save-block-section-title{font-size:13px;font-weight:700;margin-bottom:4px;}
-.save-block-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 0;border-bottom:1px solid var(--border);font-size:var(--fs-xs);}
-.save-block-row:last-child{border-bottom:none;}
-.save-block-order{font-family:var(--mono);font-weight:700;color:var(--red);}
-.save-block-sku{font-family:var(--mono);color:var(--text-muted);}
-.save-block-qty{font-family:var(--mono);font-size:11px;color:var(--text-dim);}
-.save-block-detail{font-family:var(--mono);font-size:12px;color:var(--orange);}
-.save-block-note{font-size:11px;color:var(--text-muted);font-style:italic;}
-
-/* ── Schedule page — My Cells quick-load strip ── */
-.sched-mycell-quick{font-family:var(--mono);font-size:var(--fs-xs);font-weight:700;}
-.sched-mycell-quick.active{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
-.sched-mycell-quick.mycell-down{border-color:var(--red);color:var(--red);background:var(--red-dim);}
+/* Urgency must override material-complete green border. */
+.sku-card.mat-complete.is-due-tomorrow{border-left-color:var(--yellow);}
+.sku-card.mat-complete.is-due-today{border-left-color:var(--orange);}
+.sku-card.mat-complete.is-pastdue{border-left-color:var(--red);}
+.sku-card.is-due-tomorrow{box-shadow:inset 0 0 0 1px rgba(234,179,8,.28);}
+.sku-card.is-due-today{box-shadow:inset 0 0 0 1px rgba(249,115,22,.36);}
+.sku-card.is-pastdue{box-shadow:inset 0 0 0 1px rgba(239,68,68,.45);}
+.due-group-header.due-group-soon{background:rgba(234,179,8,.08);border-left:4px solid var(--yellow);padding-left:14px;border-radius:var(--radius-sm);}
+.due-group-header.due-group-today{background:rgba(249,115,22,.10);border-left:4px solid var(--orange);padding-left:14px;border-radius:var(--radius-sm);}
+.due-group-header.due-group-overdue{background:rgba(239,68,68,.12);border-left:4px solid var(--red);padding-left:14px;border-radius:var(--radius-sm);animation:db-pulse 1.6s ease-in-out infinite;}

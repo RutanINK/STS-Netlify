@@ -6,6 +6,7 @@
 
 const SHORTAGE_TABS = {
   bent:      { label:'Bent Parts (SY)', campus:'SY', key:'bent'      },
+  bent_rx:   { label:'Bent Parts (RX)', campus:'RX', key:'bent_rx'   },
   lumber_sy: { label:'Lumber (SY)',     campus:'SY', key:'lumber_sy' },
   lumber_rx: { label:'Lumber (RX)',     campus:'RX', key:'lumber_rx' },
 };
@@ -133,7 +134,7 @@ const BENT_PART_NUMBERS = [
 ];
 
 // ── Runtime state ──
-let shortageCache = { bent:[], lumber_sy:[], lumber_rx:[] };
+let shortageCache = { bent:[], bent_rx:[], lumber_sy:[], lumber_rx:[] };
 let shortageSearchQuery = sessionStorage.getItem('sts_shortage_search') || '';
 let pendingShortageApprovalContext = null;
 
@@ -146,11 +147,11 @@ if (savedShortageTab && SHORTAGE_TABS[savedShortageTab]) activeShortageTab = sav
 async function loadShortages(silent = false) {
   try {
     const rows = await sb('sts_shortages?order=sku.asc&select=*');
-    shortageCache = { bent:[], lumber_sy:[], lumber_rx:[] };
+    shortageCache = { bent:[], bent_rx:[], lumber_sy:[], lumber_rx:[] };
     (rows || []).forEach(r => { if (shortageCache[r.category]) shortageCache[r.category].push(r); });
   } catch(e) {
     console.warn('sts_shortages not found:', e.message);
-    shortageCache = { bent:[], lumber_sy:[], lumber_rx:[] };
+    shortageCache = { bent:[], bent_rx:[], lumber_sy:[], lumber_rx:[] };
   }
   if (!silent) renderShortageTab();
 }
@@ -212,13 +213,14 @@ function renderShortageTab() {
   (shortageCache[tabCfg.key] || []).forEach(r => { dbMap[String(r.sku || '').toUpperCase()] = r; });
 
   const keyEl = document.getElementById('sh-lumber-key');
-  if (keyEl) keyEl.style.display = tabCfg.key === 'bent' ? 'none' : 'block';
+  if (keyEl) keyEl.style.display = (tabCfg.key === 'bent' || tabCfg.key === 'bent_rx') ? 'none' : 'block';
 
   document.querySelectorAll('.sh-tab').forEach(b => b.classList.remove('active'));
   const tabEl = document.getElementById('stab-' + activeShortageTab);
   if (tabEl) tabEl.classList.add('active');
 
-  const masterList = tabCfg.key === 'bent' ? BENT_PART_NUMBERS : LUMBER_PROFILES;
+  const isBent = tabCfg.key === 'bent' || tabCfg.key === 'bent_rx';
+  const masterList = isBent ? BENT_PART_NUMBERS : LUMBER_PROFILES;
   const q = String(shortageSearchQuery || '').trim().toUpperCase();
   const filteredList = q
     ? masterList.filter(sku => {
@@ -240,8 +242,9 @@ function renderShortageTab() {
     ${!isSup ? '<span style="font-size:11px;color:var(--text-muted);">View only</span>' : ''}
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 12px;">
-    <input class="input sh-filter" id="shortage-search-input" value="${shEsc(shortageSearchQuery)}" placeholder="Search SKU / profile / notes..." style="max-width:320px;font-size:13px;" oninput="setShortageSearch(this.value)">
+    <input class="input sh-filter" id="shortage-search-input" value="${shEsc(shortageSearchQuery)}" placeholder="Search SKU / profile / notes..." style="max-width:260px;font-size:13px;" oninput="setShortageSearch(this.value)">
     ${shortageSearchQuery ? `<button class="btn btn-ghost btn-xs" onclick="clearShortageSearch()">Clear Search</button>` : ''}
+    <button class="btn btn-ghost btn-sm" id="sh-instock-toggle-btn" onclick="toggleShInStock(this)">Hide In-Stock Rows</button>
   </div>`;
 
   if (tabCfg.key !== 'bent') {
@@ -272,16 +275,18 @@ function renderShortageTab() {
     const rIn = status === 'in_stock', rLow = status === 'low_quantity', rOut = status === 'out_of_stock';
     const rowStyle = rOut ? ' style="background:rgba(255,60,60,.07);"' : rLow ? ' style="background:rgba(255,200,0,.06);"' : '';
 
+    const rowCls = rIn ? ' class="sh-row-instock"' : '';
+
     if (!isSup) {
       const badge = rOut ? '<span class="badge b-ship" style="font-size:10px;">Out of Stock</span>'
                   : rLow ? '<span class="badge b-greylist" style="font-size:10px;">Low Stock</span>'
                   : '<span style="font-size:11px;color:var(--green);">In Stock</span>';
-      html += `<tr${rowStyle}><td style="font-family:var(--mono);font-size:12px;font-weight:600;">${shEsc(sku)}</td><td colspan="3" style="text-align:center;">${badge}</td><td style="font-size:11px;color:var(--text-muted);">${shEsc(notes)}</td></tr>`;
+      html += `<tr${rowStyle}${rowCls}><td style="font-family:var(--mono);font-size:12px;font-weight:600;">${shEsc(sku)}</td><td colspan="3" style="text-align:center;">${badge}</td><td style="font-size:11px;color:var(--text-muted);">${shEsc(notes)}</td></tr>`;
     } else {
       const sid = rowId ? shEsc(String(rowId)) : 'null';
       const sk  = shEsc(key);
       const cat = tabCfg.key;
-      html += `<tr${rowStyle}>
+      html += `<tr${rowStyle}${rowCls}>
         <td style="font-family:var(--mono);font-size:12px;font-weight:600;">${shEsc(sku)}</td>
         <td style="text-align:center;"><button class="sh-status-btn sh-in${rIn ? ' active' : ''}" onclick="setShortageStatus('${sk}','in_stock','${cat}','${campus}','${sid}',this)">In Stock</button></td>
         <td style="text-align:center;"><button class="sh-status-btn sh-low${rLow ? ' active' : ''}" onclick="setShortageStatus('${sk}','low_quantity','${cat}','${campus}','${sid}',this)">Low</button></td>
@@ -300,6 +305,14 @@ function renderShortageTab() {
     input.focus({ preventScroll: true });
     try { input.setSelectionRange(len, len); } catch(e) {}
   }
+}
+
+function toggleShInStock(btn) {
+  const hiding = btn.textContent.trim().startsWith('Hide');
+  document.querySelectorAll('.sh-table tr.sh-row-instock').forEach(tr => {
+    tr.style.display = hiding ? 'none' : '';
+  });
+  btn.textContent = hiding ? 'Show In-Stock Rows' : 'Hide In-Stock Rows';
 }
 
 function setShortageSearch(value) {

@@ -113,6 +113,25 @@ function baseSku(s) {
   return left;
 }
 
-function cleanDate(s)    { return s.replace(/(\d+)(st|nd|rd|th)/, '$1').replace(/^[A-Za-z]+,\s*/, ''); }
-function isDueSoon(s)    { if (!s) return false; try { const d = new Date(cleanDate(s)); return (d - Date.now()) / 86400000 <= 2 && (d - Date.now()) / 86400000 >= 0; } catch { return false; } }
-function isDueOverdue(s) { if (!s) return false; try { return new Date(cleanDate(s)) < new Date(); } catch { return false; } }
+function cleanDate(s)    { return String(s || '').replace(/(\d+)(st|nd|rd|th)/, '$1').replace(/^[A-Za-z]+,\s*/, ''); }
+function relativeDueDays(s) {
+  if (!s) return null;
+  const raw = String(s || '').trim();
+  const lower = raw.toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ');
+  if (/\byesterday\b/.test(lower)) return -1;
+  if (/\btoday\b/.test(lower)) return 0;
+  if (/\btomorrow\b/.test(lower)) return 1;
+  let m = lower.match(/(\d+)\s*(?:d|day|days)\s*(?:past due|overdue|late)/i);
+  if (m) return -Math.abs(parseInt(m[1], 10));
+  m = lower.match(/(?:due in|in)\s*(\d+)\s*(?:d|day|days)/i);
+  if (m) return Math.abs(parseInt(m[1], 10));
+  try {
+    const d = new Date(cleanDate(raw));
+    if (isNaN(d)) return null;
+    const today = new Date(); today.setHours(0,0,0,0);
+    d.setHours(0,0,0,0);
+    return Math.round((d - today) / 86400000);
+  } catch { return null; }
+}
+function isDueSoon(s)    { const d = relativeDueDays(s); return d !== null && d >= 0 && d <= 2; }
+function isDueOverdue(s) { const d = relativeDueDays(s); return d !== null && d < 0; }

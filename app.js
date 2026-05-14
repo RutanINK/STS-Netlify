@@ -23,6 +23,7 @@ function bootApp() {
   document.getElementById('tab-dashboard').style.display  = DASH_ROLES.includes(currentUser.role) ? '' : 'none';
   document.getElementById('view-as-select').style.display = currentUser.role === 'admin' ? '' : 'none';
   _applyRoleVisibility();
+  if (typeof ensureAutoSortButton === 'function') ensureAutoSortButton();
 
   loadShortages(true);
 
@@ -36,8 +37,6 @@ function bootApp() {
 
   // Load My Cells from localStorage
   _loadMyCellsFromStorage();
-  // Render the Quick Load strip on the Schedule page
-  renderSchedMyCellsStrip();
 
   // Populate edit-card material dropdowns
   _populateEditMatSelects(50);
@@ -77,6 +76,9 @@ async function editCellSchedule(cellNameVal) {
 
 
 function showPage(p) {
+  // BOM is intentionally hidden/disabled in the app UI. Keep the upload code available
+  // in source, but prevent direct navigation from exposing the tab/page.
+  if (p === 'bom' || p === 'mycells') { p = 'schedule'; }
   document.querySelectorAll('.page').forEach(el => { el.style.display = 'none'; el.classList.remove('active'); });
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
 
@@ -101,7 +103,6 @@ function showPage(p) {
   }
   if (p === 'bom')         { _updateBOMStatus(); }
   if (p === 'mycells')     { loadMyCellsList(); }
-  if (p === 'schedule')    { renderSchedMyCellsStrip(); }
   if (p === 'warrantymgr') { loadWarrantyMgr(); }
   if (p === 'blacklist')   { loadBlacklistManager(); }
 
@@ -332,6 +333,7 @@ document.getElementById('btn-parse').addEventListener('click', async () => {
     updateVariantButtons();
     render();
     markUnsaved();
+    if (typeof _updateSchedMachineDownBtn === 'function') _updateSchedMachineDownBtn();
 
     toast(`Parsed ${result.items.length} SKU${result.items.length !== 1 ? 's' : ''} — ${parsedCell}${parsedBlockedOrders ? ` (${parsedBlockedOrders} blocked order${parsedBlockedOrders !== 1 ? 's' : ''} must be removed before save)` : ''}`, 'ok');
   } catch (e) {
@@ -355,6 +357,8 @@ document.getElementById('btn-clear').addEventListener('click', () => {
   document.getElementById('paste-panel').style.display   = 'block';
   document.getElementById('meta-saved').style.display    = 'none';
   document.getElementById('sched-meta').style.display    = 'none';
+  const mdb = document.getElementById('btn-sched-mdown'); if (mdb) mdb.style.display = 'none';
+  const cdb = document.getElementById('btn-sched-cleardown'); if (cdb) cdb.style.display = 'none';
   updateVariantButtons(); render();
 });
 
@@ -369,23 +373,33 @@ document.getElementById('btn-load-saved').addEventListener('click', async () => 
   const list = document.getElementById('saved-list');
   list.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">Loading…</span>';
   try {
-    const canSeeAll = DASH_ROLES.includes(currentUser.role);
-    const filter = canSeeAll
-      ? `sts_schedules?campus=eq.${currentUser.campus}&order=created_at.desc&limit=30&select=id,cell_name,created_by,created_at`
-      : `sts_schedules?campus=eq.${currentUser.campus}&employee_id=eq.${currentUser.id}&order=created_at.desc&limit=20&select=id,cell_name,created_by,created_at`;
-    const rows = await sb(filter);
-    if (!rows || !rows.length) { list.innerHTML = '<span style="color:var(--text-dim);font-size:12px;">No saved schedules yet.</span>'; return; }
+    const isSup = SUP_ROLES.includes(currentUser.role);
+    let rows;
+    if (isSup) {
+      rows = await sb(`sts_schedules?campus=eq.${currentUser.campus}&order=created_at.desc&limit=60&select=id,cell_name,created_by,created_at`);
+    } else if (myCellsList && myCellsList.length) {
+      const perCell = await Promise.all(
+        myCellsList.map(c => sb(`sts_schedules?campus=eq.${currentUser.campus}&cell_name=eq.${encodeURIComponent(c)}&order=created_at.desc&limit=10&select=id,cell_name,created_by,created_at`).catch(() => []))
+      );
+      rows = perCell.flat().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    } else {
+      rows = await sb(`sts_schedules?campus=eq.${currentUser.campus}&employee_id=eq.${currentUser.id}&order=created_at.desc&limit=20&select=id,cell_name,created_by,created_at`);
+    }
+    if (!rows || !rows.length) {
+      list.innerHTML = `<span style="color:var(--text-dim);font-size:12px;">${!isSup && myCellsList?.length ? `No saved schedules for ${myCellsList.join(', ')} yet.` : 'No saved schedules yet.'}</span>`;
+      return;
+    }
     list.innerHTML = rows.map(r => `<div class="saved-row">
       <div class="saved-row-left">
         <span class="saved-cell">${r.cell_name}</span>
         <div class="saved-meta">
-          <span class="saved-time">${new Date(r.created_at).toLocaleString()}</span>
+          <span class="saved-time">${new Date(r.created_at).toLocaleString('en-US',{timeZone:'America/New_York'})}</span>
           <span class="saved-by">by ${r.created_by}</span>
         </div>
       </div>
       <div class="saved-row-right">
-      <button class="btn btn-ghost btn-xs" onclick="loadSchedule('${r.id}')">Load</button>
-        ${canSeeAll || r.created_by === currentUser.name ? `<button class="btn btn-danger btn-xs" onclick="deleteSchedule('${r.id}',this)">Delete</button>` : ''}
+        <button class="btn btn-ghost btn-xs" onclick="loadSchedule('${r.id}')">Load</button>
+        ${isSup || r.created_by === currentUser.name ? `<button class="btn btn-danger btn-xs" onclick="deleteSchedule('${r.id}',this)">Delete</button>` : ''}
       </div>
     </div>`).join('');
   } catch (e) { list.innerHTML = '<span style="color:var(--red);font-size:12px;">' + e.message + '</span>'; }
@@ -427,12 +441,29 @@ function updateVariantButtons() {
   if (combBtn) combBtn.style.display = 'none';
 }
 
-// ── Supervisor tab visibility ──
+// ── Role & campus tab visibility ──
 function _applyRoleVisibility() {
-  document.getElementById('tab-dashboard').style.display   = DASH_ROLES.includes(currentUser.role) ? '' : 'none';
-  const blTab = document.getElementById('tab-blacklist');
-  if (blTab) blTab.style.display = SUP_ROLES.includes(currentUser.role) ? '' : 'none';
-  document.getElementById('tab-warrantymgr').style.display = SUP_ROLES.includes(currentUser.role)  ? '' : 'none';
+  const role   = currentUser.role;
+  const campus = currentUser.campus;
+  const isSup  = SUP_ROLES.includes(role);
+  const isMgr  = ['manager','admin'].includes(role);
+  const setTab = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? '' : 'none'; };
+  setTab('tab-mycells',     false);
+  setTab('tab-bom',         false);
+  const myCellsPage = document.getElementById('page-mycells');
+  if (myCellsPage) myCellsPage.style.display = 'none';
+  const bomPage = document.getElementById('page-bom');
+  if (bomPage) bomPage.style.display = 'none';
+  setTab('tab-board',       isSup);
+  setTab('tab-shortages',   isSup);
+  setTab('tab-blacklist',   isSup);
+  setTab('tab-warrantymgr', isSup);
+  setTab('tab-dashboard',   isMgr);
+  // Shortage sub-tabs: campus-specific visibility
+  ['stab-bent','stab-lumber_sy'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = campus === 'SY' ? '' : 'none'; });
+  ['stab-bent_rx','stab-lumber_rx'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = campus === 'RX' ? '' : 'none'; });
+  const vas = document.getElementById('view-as-select');
+  if (vas) vas.style.display = role === 'admin' ? '' : 'none';
 }
 
 
@@ -527,84 +558,6 @@ async function removeBlacklistOrder(id, orderNum, btn) {
   }
 }
 
-// ── Schedule page — My Cells quick-load strip ──
-// Renders cell buttons in the paste panel so users can load their cell into the
-// Schedule tab directly, fully editable (same as loading a saved schedule).
-function renderSchedMyCellsStrip() {
-  const strip = document.getElementById('sched-mycells-strip');
-  const btnsEl = document.getElementById('sched-mycells-btns');
-  if (!strip || !btnsEl) return;
-
-  if (!myCellsList || !myCellsList.length) {
-    strip.style.display = 'none';
-    return;
-  }
-
-  strip.style.display = '';
-  btnsEl.innerHTML = myCellsList.map(c => {
-    const isDown = machineDownCells.has(c);
-    return `<button class="btn btn-ghost btn-sm sched-mycell-quick${isDown ? ' mycell-down' : ''}"
-      onclick="loadMyCellIntoSchedule('${c}',this)"
-      data-cell="${c}"
-      title="Load ${c} into Schedule for editing">
-      ${isDown ? '<span class="mycell-down-dot">●</span> ' : ''}${c}
-    </button>`;
-  }).join('');
-}
-
-async function loadMyCellIntoSchedule(cellNameVal, btn) {
-  if (!cellNameVal) return;
-
-  // If there's already a schedule loaded and it has unsaved changes, confirm
-  if (scheduleItems.length && typeof hasUnsavedChanges === 'function' && hasUnsavedChanges()) {
-    if (!confirm(`You have unsaved changes for ${cellName}. Discard and load ${cellNameVal}?`)) return;
-  }
-
-  // Highlight the clicked button
-  document.querySelectorAll('.sched-mycell-quick').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-
-  toast(`Loading ${cellNameVal}…`, 'info');
-
-  try {
-    const scheds = await sb(
-      `sts_schedules?cell_name=eq.${encodeURIComponent(cellNameVal)}&campus=eq.${currentUser.campus}&order=created_at.desc&limit=1&select=id`
-    );
-
-    if (!scheds || !scheds.length) {
-      // No saved schedule — set up a blank schedule for this cell so they can build one
-      if (typeof scheduleItems !== 'undefined') {
-        scheduleItems = [];
-        cellName = cellNameVal;
-        savedScheduleId = null;
-        lastSavedState = null;
-        variantSources = [];
-        orderDoneState = {};
-        document.getElementById('paste-panel').style.display = 'block';
-        if (typeof updateVariantButtons === 'function') updateVariantButtons();
-        if (typeof render === 'function') render();
-        if (typeof markUnsaved === 'function') markUnsaved();
-        // Update the meta chip to show the cell name
-        const cellEl = document.getElementById('meta-cell');
-        if (cellEl) cellEl.innerHTML = `<span class="meta-cell-name">${cellNameVal}</span><span class="meta-campus">${currentUser.campus}</span>`;
-        document.getElementById('sched-meta').style.display = 'flex';
-        document.getElementById('empty-state').style.display = 'block';
-      }
-      toast(`No saved schedule for ${cellNameVal} — starting fresh`, 'info');
-      return;
-    }
-
-    // Load the existing schedule — fully editable
-    await loadSchedule(scheds[0].id);
-    // Collapse the paste panel since schedule is now loaded
-    document.getElementById('paste-panel').style.display = 'none';
-    toast(`Loaded ${cellNameVal} — ready to edit`, 'ok');
-  } catch (e) {
-    toast('Load failed: ' + e.message, 'err');
-    if (btn) btn.classList.remove('active');
-  }
-}
-
 // ── My Cells — user manages their own list ──
 const MY_CELLS_KEY = 'sts_my_cells_' + (currentUser?.id || 'guest');
 
@@ -641,7 +594,6 @@ function saveMyCells() {
   _saveMyCellsToStorage();
   closeModal('modal-manage-cells');
   renderMyCellsCards();
-  renderSchedMyCellsStrip();
   toast('My Cells updated', 'ok');
 }
 
@@ -664,61 +616,87 @@ async function loadMyCellsList() {
 
 async function loadMyCellSchedule(cellNameVal, btn) {
   if (!cellNameVal) return;
-  // Highlight active button
+  window._activeMyCellName = cellNameVal;
   document.querySelectorAll('.mycell-card-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-
-  const listEl = document.getElementById('mycells-list');
-  const infoEl = document.getElementById('mycells-info');
-  listEl.innerHTML = '<div style="color:var(--text-muted);padding:40px;text-align:center;">Loading…</div>';
-  infoEl.style.display = 'none';
+  const actBar = document.getElementById('mycells-actions');
+  if (actBar) actBar.style.display = 'flex';
+  const clearBtn = document.getElementById('btn-mycell-cleardown');
+  if (clearBtn) clearBtn.style.display = (typeof machineDownCells !== 'undefined' && machineDownCells.has(cellNameVal)) ? '' : 'none';
   try {
-    const scheds = await sb(`sts_schedules?cell_name=eq.${encodeURIComponent(cellNameVal)}&campus=eq.${currentUser.campus}&order=created_at.desc&limit=1&select=id,cell_name,created_by,created_at`);
-    if (!scheds || !scheds.length) {
-      listEl.innerHTML = `<div style="color:var(--text-dim);padding:40px;text-align:center;">No schedule found for ${cellNameVal}.</div>`;
-      return;
-    }
-    const sched = scheds[0];
-    const items = await sb(`sts_schedule_items?schedule_id=eq.${sched.id}&order=sort_order.asc`);
-    infoEl.textContent = 'Schedule saved by ' + sched.created_by + ' on ' + new Date(sched.created_at).toLocaleString();
-    infoEl.style.display = 'block';
+    const scheds = await sb(`sts_schedules?cell_name=eq.${encodeURIComponent(cellNameVal)}&campus=eq.${currentUser.campus}&order=created_at.desc&limit=1&select=id`);
+    if (!scheds || !scheds.length) { toast('No schedule found for ' + cellNameVal, 'info'); return; }
+    showPage('schedule');
+    await loadSchedule(scheds[0].id);
+    toast('Loaded ' + cellNameVal, 'ok');
+  } catch(e) { toast('Failed: ' + e.message, 'err'); }
+}
 
-    if (!items || !items.length) {
-      listEl.innerHTML = '<div style="color:var(--text-dim);padding:40px;text-align:center;">Schedule is empty.</div>';
-      return;
-    }
-    let html = ''; let lastDue = null;
-    items.forEach(it => {
-      const due = it.due_date || '—';
-      if (due !== lastDue) {
-        const dateCls = 'due-group-header' + (isDueOverdue(it.due_date) ? ' overdue' : isDueSoon(it.due_date) ? ' soon' : '');
-        html += `<div class="${dateCls}">Due: ${due}</div>`;
-        lastDue = due;
-      }
-      const mustShipBadge  = it.must_ship ? '<span class="badge b-ship">Must Ship</span>' : '';
-      const warrantyBadge  = it.order_type === 'warranty'    ? '<span class="badge b-warranty">Warranty</span>' : '';
-      const replaceBadge   = it.order_type === 'replacement' ? '<span class="badge b-replacement">Full Repl.</span>' : '';
-      html += `<div class="sku-card mycell-readonly">
-        <div class="card-row">
-          <div class="card-sku">
-            <div class="card-sku-top">
-              <span class="card-sku-name">${it.sku}</span>
-              <span class="takt-pill">${fmtTakt(it.takt_minutes)}</span>
-              <div class="card-badges">${mustShipBadge}${warrantyBadge}${replaceBadge}</div>
-            </div>
-            <div class="card-qty-block qty-clean">
-              <span class="card-qty-label">QTY</span>
-              <span class="card-qty-value">${it.quantity}</span>
-            </div>
-            ${it.order_number ? `<div class="card-orders-wrap"><span class="order-row-num" style="font-size:var(--fs-xs);">Order: ${it.order_number}</span></div>` : ''}
-          </div>
-        </div>
-      </div>`;
-    });
-    listEl.innerHTML = html;
-  } catch(e) {
-    listEl.innerHTML = `<div style="color:var(--red);padding:20px;">Failed to load: ${e.message}</div>`;
-  }
+// ── Machine Down — shared helpers ──
+function _mdownReset() {
+  const r = document.getElementById('mdown-reason'); if (r) r.value = '';
+  const n = document.getElementById('mdown-note');   if (n) n.value = '';
+  const g = document.getElementById('mdown-note-group'); if (g) g.style.display = 'none';
+  const b = document.getElementById('btn-mdown-send'); if (b) b.disabled = true;
+}
+function onMdownReasonChange(val) {
+  const g = document.getElementById('mdown-note-group'); if (g) g.style.display = val === 'Other' ? '' : 'none';
+  const b = document.getElementById('btn-mdown-send');  if (b) b.disabled = !val;
+}
+function _openMdownModal(cellNameVal) {
+  _mdownReset();
+  document.getElementById('mdown-cell-label').textContent = cellNameVal;
+  document.getElementById('mdown-reporter').value = currentUser.name;
+  if (typeof activeOverlayCell !== 'undefined') activeOverlayCell = cellNameVal;
+  document.getElementById('modal-mdown').classList.add('open');
+}
+function _openClearMdownModal(cellNameVal) {
+  const r = document.getElementById('mdown-clear-reason'); if (r) r.value = '';
+  const b = document.getElementById('btn-mdown-clear-send'); if (b) b.disabled = true;
+  const lbl = document.getElementById('mdown-clear-cell-label'); if (lbl) lbl.textContent = cellNameVal;
+  const rep = document.getElementById('mdown-clear-reporter'); if (rep) rep.value = currentUser.name;
+  if (typeof activeOverlayCell !== 'undefined') activeOverlayCell = cellNameVal;
+  document.getElementById('modal-mdown-clear').classList.add('open');
+}
+// Schedule page
+function openMachineDownFromSchedule() {
+  if (!cellName) { toast('No cell loaded', 'info'); return; }
+  if (machineDownCells.has(cellName)) _openClearMdownModal(cellName);
+  else _openMdownModal(cellName);
+}
+function openClearMachineDownFromSchedule() { if (cellName) _openClearMdownModal(cellName); else toast('No cell loaded', 'info'); }
+function _updateSchedMachineDownBtn() {
+  const mdb = document.getElementById('btn-sched-mdown');
+  const cdb = document.getElementById('btn-sched-cleardown');
+  if (!mdb) return;
+  const isDown = cellName && typeof machineDownCells !== 'undefined' && machineDownCells.has(cellName);
+  mdb.style.display = cellName ? '' : 'none';
+  mdb.textContent = isDown ? '✅ Machine Clear' : '🔴 Machine Down';
+  mdb.className = isDown ? 'btn btn-success btn-sm' : 'btn btn-down btn-sm';
+  if (cdb) cdb.style.display = 'none';
+}
+// My Cells page is hidden, but helpers remain for legacy cached buttons.
+function openMachineDownFromMyCells() {
+  const cn = window._activeMyCellName;
+  if (!cn) { toast('Select a cell first', 'info'); return; }
+  if (machineDownCells.has(cn)) _openClearMdownModal(cn);
+  else _openMdownModal(cn);
+}
+function openClearMachineDownFromMyCells() { const cn = window._activeMyCellName; if (cn) _openClearMdownModal(cn); else toast('Select a cell first', 'info'); }
+
+async function clearMachineDown() {
+  const cn = activeOverlayCell || cellName || window._activeMyCellName;
+  if (!cn) { toast('No cell selected', 'info'); return; }
+  machineDownCells.delete(cn);
+  closeModal('modal-mdown-clear');
+  const overlay = document.getElementById('overlay-cell');
+  if (overlay) overlay.classList.remove('open');
+  if (typeof renderBoard === 'function' && boardData) renderBoard();
+  if (typeof _updateSchedMachineDownBtn === 'function') _updateSchedMachineDownBtn();
+  const clearBtn = document.getElementById('btn-mycell-cleardown');
+  if (clearBtn) clearBtn.style.display = 'none';
+  logAction(LOG.MACHINE_DOWN, { cell_name: cn, note: 'Machine clear' });
+  toast('Machine clear for ' + cn, 'ok');
 }
 
 // ── Warranty Manager (supervisor) ──

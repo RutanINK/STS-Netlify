@@ -86,8 +86,87 @@ function buildPrintTable() {
 // orderDoneState[realIdx][orderNum] = true|false
 let orderDoneState = {};
 
+// Due-date urgency helpers used by schedule cards, group headers, and print logic.
+function scheduleDaysDiff(dateStr) {
+  if (!dateStr || dateStr === '—') return null;
+  const raw = String(dateStr || '').trim();
+  const lower = raw.toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ');
+
+  if (/\byesterday\b/.test(lower)) return -1;
+  if (/\btoday\b/.test(lower)) return 0;
+  if (/\btomorrow\b/.test(lower)) return 1;
+
+  let m = lower.match(/(\d+)\s*(?:d|day|days)\s*(?:past due|overdue|late)/i);
+  if (m) return -Math.abs(parseInt(m[1], 10));
+  m = lower.match(/(?:due in|in)\s*(\d+)\s*(?:d|day|days)/i);
+  if (m) return Math.abs(parseInt(m[1], 10));
+
+  try {
+    const due = new Date(cleanDate(raw));
+    if (isNaN(due)) return null;
+    const today = new Date(); today.setHours(0,0,0,0);
+    due.setHours(0,0,0,0);
+    return Math.round((due - today) / 86400000);
+  } catch { return null; }
+}
+
+function dueUrgencyLabel(dateStr, opts = {}) {
+  const d = scheduleDaysDiff(dateStr);
+  if (d === null) return opts.fallback || String(dateStr || '');
+  if (d > 2) return String(dateStr || '');
+  if (d === 2) return 'Due in 2 Days';
+  if (d === 1) return 'Due Tomorrow';
+  if (d === 0) return 'Due Today';
+  if (d === -1) return 'Due Yesterday';
+  if (d >= -3) return `${Math.abs(d)}d Past Due`;
+  return `${Math.abs(d)}d Overdue`;
+}
+
+function dueBadge(dateStr, opts = {}) {
+  const d = scheduleDaysDiff(dateStr); if (d === null) return '';
+  const label = schedEsc(dueUrgencyLabel(dateStr));
+  const extra = opts.order ? ' due-badge-order' : '';
+  if (d >  2) return `<span class="due-badge db-future${extra}">📅 ${schedEsc(dateStr)}</span>`;
+  if (d === 2) return `<span class="due-badge db-green${extra}">📅 ${label}</span>`;
+  if (d === 1) return `<span class="due-badge db-yellow${extra}">📅 ${label}</span>`;
+  if (d === 0) return `<span class="due-badge db-orange${extra}">⚠ ${label}</span>`;
+  if (d === -1) return `<span class="due-badge db-red1${extra}">🔴 ${label}</span>`;
+  if (d >= -3) return `<span class="due-badge db-red2${extra}">🔴 ${label}</span>`;
+  return              `<span class="due-badge db-red3${extra}">🚨 ${label}</span>`;
+}
+
+function dueGroupHeaderLabel(dateStr) {
+  const d = scheduleDaysDiff(dateStr);
+  if (d === null) return `Due: ${schedEsc(dateStr || '—')}`;
+  if (d > 2) return `Due: ${schedEsc(dateStr || '—')}`;
+  return dueUrgencyLabel(dateStr);
+}
+
+function shortageLabelForBadge(impact) {
+  if (!impact) return '';
+  const material = String(impact.shortageSku || impact.materialSku || impact.componentSku || impact.component || impact.finishedSku || '').trim().toUpperCase();
+  if (!material) return '';
+  return material.length > 22 ? material.slice(0, 19) + '…' : material;
+}
+
+
+// Ensure Auto Sort exists even if an older HTML shell is cached/deployed.
+function ensureAutoSortButton() {
+  const actions = document.querySelector('#sched-meta .sched-actions');
+  if (!actions || document.getElementById('btn-auto-sort')) return;
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-primary btn-sm';
+  btn.id = 'btn-auto-sort';
+  btn.type = 'button';
+  btn.textContent = 'Auto Sort';
+  btn.onclick = autoSortLikeSkus;
+  const loadWarranty = document.getElementById('btn-load-warranty-current');
+  actions.insertBefore(btn, loadWarranty || actions.firstChild);
+}
+
 // ── Main render ──
 function render() {
+  ensureAutoSortButton();
   const list  = document.getElementById('schedule-list');
   const empty = document.getElementById('empty-state');
   const meta  = document.getElementById('sched-meta');
@@ -127,6 +206,8 @@ function render() {
   const isSup = SUP_ROLES.includes(currentUser.role);
   const blacklistedOrderSet = new Set([...blacklistedOrders].map(o => _normOrderNumber(o)).filter(Boolean));
 
+  const daysDiff = scheduleDaysDiff;
+
   orderedItems.forEach((it, dispIdx) => {
     const realIdx = scheduleItems.indexOf(it);
     const directBlock = isSKUBlocked(it.sku);
@@ -135,12 +216,26 @@ function render() {
     const isBlocked   = directBlock || (bomReason?.status === 'out_of_stock');
     const isGreyList  = directGrey  || (bomReason?.status === 'low_quantity');
 
+    // Changeover divider between different base SKUs; date header within same base SKU
+    if (dispIdx > 0) {
+      const prevBase = baseSku(orderedItems[dispIdx - 1].sku);
+      const thisBase = baseSku(it.sku);
+      if (thisBase !== prevBase) {
+        html.push('<div class="changeover-divider"><span>↔ Changeover</span></div>');
+        lastDueDate = null; // reset so date header re-appears after changeover
+      }
+    }
     const thisDate = it.dueDate || '—';
     if (thisDate !== lastDueDate) {
-      const dateCls = 'due-group-header' + (isDueOverdue(it.dueDate) ? ' overdue' : isDueSoon(it.dueDate) ? ' soon' : '');
-      html.push(`<div class="${dateCls}">Due: ${schedEsc(thisDate)}</div>`);
       lastDueDate = thisDate;
-    } else if (dispIdx > 0 && baseSku(orderedItems[dispIdx].sku) !== baseSku(orderedItems[dispIdx - 1].sku)) html.push('<div class="changeover-divider"></div>');
+      const d = daysDiff(it.dueDate);
+      const sectionLabel = dueGroupHeaderLabel(thisDate);
+      const hdrCls = d !== null && d < 0 ? 'due-group-header due-group-overdue'
+                   : d === 0 ? 'due-group-header due-group-today'
+                   : d === 1 || d === 2 ? 'due-group-header due-group-soon'
+                   : 'due-group-header';
+      html.push(`<div class="${hdrCls}">${sectionLabel}</div>`);
+    }
 
     const isWarrantyType    = it.orderType === 'warranty' || it.sourceSystem === 'warranty';
     const isReplacementType = it.orderType === 'replacement';
@@ -157,6 +252,29 @@ function render() {
     if (isGreyList) cls.push('is-grey-list');
     if (hasBlacklistedOrder) cls.push('has-blacklisted-order');
     if (allOrdersDone) cls.push('is-done');
+    // Card border urgency
+    const d0 = daysDiff(it.dueDate);
+    if (d0 !== null) {
+      if (d0 < 0)  cls.push('is-pastdue');
+      else if (d0 === 0) cls.push('is-due-today');
+      else if (d0 === 1) cls.push('is-due-tomorrow');
+    }
+    // Green border when all materials are accounted for
+    if (!isBlocked && !isGreyList
+      && ['boxes','hardware','lumber'].every(f => !it[f] || it[f] === 'have_all')
+      && (!it.showSlings    || !it.slings    || it.slings    === 'have_all')
+      && (!it.showBentParts || !it.bentParts || it.bentParts === 'have_all')) {
+      cls.push('mat-complete');
+    }
+
+    const shortageImpact = bomReason
+      ? { finishedSku: it.sku, materialSku: bomReason.shortageSku || bomReason.component || it.sku, componentSku: bomReason.component || '', status: bomReason.status, notes: bomReason.notes || '', source: 'bom' }
+      : directBlock
+        ? { finishedSku: it.sku, materialSku: it.sku, componentSku: '', status: 'out_of_stock', notes: 'Direct shortage', source: 'direct' }
+        : directGrey
+          ? { finishedSku: it.sku, materialSku: it.sku, componentSku: '', status: 'low_quantity', notes: 'Direct low quantity', source: 'direct' }
+          : null;
+    const shortageBadgeItem = shortageLabelForBadge(shortageImpact);
 
     const badges = [];
     if (it.mustShip) badges.push('<span class="badge b-ship">Must Ship</span>');
@@ -164,9 +282,9 @@ function render() {
     if (isReplacementType) badges.push('<span class="badge b-replacement">Full Repl.</span>');
     if (hasBlacklistedOrder) badges.push('<span class="badge b-blocked">Blocked Order</span>');
     if (it.merged) badges.push('<span class="badge b-merged">Merged</span>');
-    if (isBlocked) badges.push('<span class="badge b-blocked">Supply Shortage</span>');
-    else if (isGreyList) badges.push('<span class="badge b-greylist">Low Quantity</span>');
-    else if ([it.boxes, it.hardware, it.lumber, it.showSlings ? it.slings : null, it.showBentParts ? it.bentParts : null].some(v => v && v !== 'have_all')) badges.push('<span class="badge b-shortage">Shortage</span>');
+    if (isBlocked) badges.push(`<span class="badge b-blocked">Shortage: ${schedEsc(shortageBadgeItem || 'Material')}</span>`);
+    else if (isGreyList) badges.push(`<span class="badge b-greylist">Low Qty: ${schedEsc(shortageBadgeItem || 'Material')}</span>`);
+    else if ([it.boxes, it.hardware, it.lumber, it.showSlings ? it.slings : null, it.showBentParts ? it.bentParts : null].some(v => v && v !== 'have_all')) badges.push('<span class="badge b-shortage">Material Need</span>');
     if (allOrdersDone) badges.push('<span class="badge b-done">Done</span>');
 
     let srcTags = (it.sourceCells && it.sourceCells.length > 1)
@@ -187,23 +305,16 @@ function render() {
         const doneOnclick = needsInspect
           ? `toggleOrderDoneWithInspect(${realIdx},'${jsArg(ob.orderNum)}','${jsArg(it.sku)}','${jsArg(it.orderType)}')`
           : `toggleOrderDone(${realIdx},'${jsArg(ob.orderNum)}')`;
-        return `<div class="order-row${isDone ? ' order-done' : ''}${isBlacklisted ? ' order-blacklisted' : ''}"><span class="order-row-num">${schedEsc(ob.orderNum)}</span><span class="order-row-qty">×${schedEsc(ob.qty)}</span>${ob.dueDate ? `<span class="order-row-date">${schedEsc(ob.dueDate)}</span>` : ''}<div class="order-row-actions"><button class="order-act-btn${isDone ? ' done' : ''}" onclick="${doneOnclick}">${isDone ? 'Undo' : 'Done'}</button>${!it.lockedSource && Number(ob.qty || 0) > 1 ? `<button class="order-act-btn split" onclick="splitOrderChunk(${realIdx},'${jsArg(ob.orderNum)}')">Split</button>` : ''}${!it.lockedSource ? `<button class="order-act-btn remove" onclick="removeOrderByNum(${realIdx},'${jsArg(ob.orderNum)}')">Remove</button>` : ''}${isBlacklisted ? '<span class="order-status-chip blocked">Blocked</span>' : ''}</div></div>`;
+        return `<div class="order-row${isDone ? ' order-done' : ''}${isBlacklisted ? ' order-blacklisted' : ''}"><span class="order-row-num">${schedEsc(ob.orderNum)}</span><span class="order-row-qty">×${schedEsc(ob.qty)}</span><div class="order-row-actions"><button class="order-act-btn${isDone ? ' done' : ''}" onclick="${doneOnclick}">${isDone ? 'Undo' : 'Done'}</button>${!it.lockedSource && Number(ob.qty || 0) > 1 ? `<button class="order-act-btn split" onclick="splitOrderChunk(${realIdx},'${jsArg(ob.orderNum)}')">Split</button>` : ''}${!it.lockedSource ? `<button class="order-act-btn remove" onclick="removeOrderByNum(${realIdx},'${jsArg(ob.orderNum)}')">Remove</button>` : ''}${isBlacklisted ? '<span class="order-status-chip blocked">Blocked</span>' : ''}</div></div>`;
       }).join('');
     }
 
     const hasOrders = it.orderBreakdown?.some(ob => ob.orderNum);
-    const ordersToggle = hasOrders ? `<button class="orders-toggle-btn" onclick="toggleOrdersPanel(this)" aria-expanded="true">Orders <span class="orders-toggle-count">${it.orderBreakdown.filter(o => o.orderNum).length}</span></button>` : '';
-    const ordersPanel  = hasOrders ? `<div class="orders-panel" style="display:flex;">${orderRows}</div>` : '';
+    const ordersToggle = hasOrders ? `<button class="orders-toggle-btn" onclick="toggleOrdersPanel(this)" aria-expanded="false">Orders <span class="orders-toggle-count">${it.orderBreakdown.filter(o => o.orderNum).length}</span></button>` : '';
+    const ordersPanel  = hasOrders ? `<div class="orders-panel" style="display:none;">${orderRows}</div>` : '';
     const mustShipToggle = `<label class="must-ship-toggle" title="Toggle Must Ship"><input type="checkbox" ${it.mustShip ? 'checked' : ''} onchange="toggleMustShip(${realIdx},this.checked)"><span>Must Ship</span></label>`;
 
-    const shortageImpact = bomReason
-      ? { finishedSku: it.sku, materialSku: bomReason.shortageSku || bomReason.component || it.sku, componentSku: bomReason.component || '', status: bomReason.status, notes: bomReason.notes || '', source: 'bom' }
-      : directBlock
-        ? { finishedSku: it.sku, materialSku: it.sku, componentSku: '', status: 'out_of_stock', notes: 'Direct shortage', source: 'direct' }
-        : directGrey
-          ? { finishedSku: it.sku, materialSku: it.sku, componentSku: '', status: 'low_quantity', notes: 'Direct low quantity', source: 'direct' }
-          : null;
-    const shortageMaterialLabel = shortageImpact ? `${shortageImpact.materialSku}${shortageImpact.componentSku && shortageImpact.componentSku !== shortageImpact.materialSku ? ` (BOM: ${shortageImpact.componentSku})` : ''}` : '';
+        const shortageMaterialLabel = shortageImpact ? `${shortageImpact.materialSku}${shortageImpact.componentSku && shortageImpact.componentSku !== shortageImpact.materialSku ? ` (BOM: ${shortageImpact.componentSku})` : ''}` : '';
     const shortageNotes = shortageImpact?.notes || '';
     const shortageStatusLabel = shortageImpact?.status === 'out_of_stock' ? 'Out of Stock' : shortageImpact?.status === 'low_quantity' ? 'Low Quantity' : 'Shortage';
 
@@ -214,7 +325,15 @@ function render() {
         ? `<div class="card-mats" style="background:var(--yellow-dim);border-top:1px solid var(--yellow);"><span style="color:var(--yellow);font-size:12px;font-weight:600;">Low Quantity${shortageMaterialLabel ? `: ${schedEsc(shortageMaterialLabel)}` : ''}.${shortageNotes ? `<span style="color:var(--text-muted);margin-left:6px;">${schedEsc(shortageNotes)}</span>` : ''} ${isSup ? `<button class="btn btn-ghost btn-xs" style="margin-left:8px;" onclick="openShortageApprove('${jsArg(it.sku)}','${jsArg(shortageNotes)}','${jsArg(shortageImpact?.materialSku || '')}','${jsArg(shortageImpact?.componentSku || '')}','${jsArg(shortageImpact?.status || 'low_quantity')}')">Approve Override</button>` : 'A supervisor, manager, or admin must approve scheduling this SKU.'}</span></div>${normalMatsRow}`
         : normalMatsRow;
     const dragAttrs = canDrag ? `draggable="true" ondragstart="onDS(event,${realIdx})" ondragover="onDO(event,${realIdx})" ondrop="onDP(event,${realIdx})" ondragleave="onDL(event)" ondragend="onDE(event)"` : `draggable="false" title="Warranty items cannot be reordered"`;
-    html.push(`<div class="${cls.join(' ')}" ${dragAttrs} data-idx="${realIdx}"><div class="card-row"><span class="card-drag" style="${canDrag ? '' : 'opacity:.2;cursor:not-allowed;'}">&#8942;</span><div class="card-sku"><div class="card-sku-top"><span class="card-sku-name">${schedEsc(it.sku)}</span><span class="takt-pill">${schedEsc(it.taktStr)}</span><div class="card-badges">${badges.join('')}</div>${srcTags}</div>${it.description ? `<div class="card-sku-desc">${schedEsc(it.description)}</div>` : ''}${qtyDisplay}<div class="card-orders-wrap">${ordersToggle}${ordersPanel}</div></div><div class="card-right">${mustShipToggle}<button class="card-remove-btn" onclick="removeCard(${realIdx})">Remove</button></div></div>${matsRow}</div>`);
+    // Material handler progress indicators
+    const orderKey0 = (it.orderNums && it.orderNums[0]) || `idx_${realIdx}`;
+    const ev = (typeof matEventState !== 'undefined' && matEventState[orderKey0]) || {};
+    const evBits = [];
+    if (ev.pulled)    evBits.push('<span class="mat-event-badge mat-event-pulled">✓ Pulled</span>');
+    if (ev.prepped)   evBits.push('<span class="mat-event-badge mat-event-prepped">✓ Prepped</span>');
+    if (ev.delivered) evBits.push('<span class="mat-event-badge mat-event-delivered">✓ To Cell</span>');
+    const matEventsRow = evBits.length ? `<div class="card-mat-events">${evBits.join('')}</div>` : '';
+    html.push(`<div class="${cls.join(' ')}" ${dragAttrs} data-idx="${realIdx}"><div class="card-row"><span class="card-drag" style="${canDrag ? '' : 'opacity:.2;cursor:not-allowed;'}">&#8942;</span><div class="card-sku"><div class="card-sku-top"><span class="card-sku-name">${schedEsc(it.sku)}</span><span class="takt-pill">${schedEsc(it.taktStr)}</span>${dueBadge(it.dueDate)}<div class="card-badges">${badges.join('')}</div>${srcTags}</div>${it.description ? `<div class="card-sku-desc">${schedEsc(it.description)}</div>` : ''}${qtyDisplay}${matEventsRow}<div class="card-orders-wrap">${ordersToggle}${ordersPanel}</div></div><div class="card-right">${mustShipToggle}<button class="card-remove-btn" onclick="removeCard(${realIdx})">Remove</button></div></div>${matsRow}</div>`);
   });
   list.innerHTML = html.join('');
   buildPrintTable();
@@ -296,6 +415,45 @@ function toggleOrdersPanel(btn) {
   const open  = panel.style.display === 'none';
   panel.style.display  = open ? 'flex' : 'none';
   btn.setAttribute('aria-expanded', open);
+}
+
+
+// ── Auto sort — group like SKUs together, ignoring color suffixes ──
+function autoSortLikeSkus() {
+  if (!scheduleItems.length) {
+    toast('No schedule loaded to sort', 'info');
+    return;
+  }
+
+  const before = scheduleItems.map(it => it.sku).join('|');
+  scheduleItems = scheduleItems
+    .map((it, originalIndex) => ({ it, originalIndex }))
+    .sort((a, b) => {
+      const aBase = baseSku(a.it.sku);
+      const bBase = baseSku(b.it.sku);
+      if (aBase !== bBase) return aBase.localeCompare(bBase, undefined, { numeric: true, sensitivity: 'base' });
+
+      // Same base SKU: keep colors/variants adjacent in a predictable order.
+      const skuCmp = String(a.it.sku || '').localeCompare(String(b.it.sku || ''), undefined, { numeric: true, sensitivity: 'base' });
+      if (skuCmp) return skuCmp;
+
+      // Same SKU: keep due-date groups together where possible, then preserve original order.
+      const dueCmp = String(a.it.dueDate || '').localeCompare(String(b.it.dueDate || ''), undefined, { numeric: true, sensitivity: 'base' });
+      if (dueCmp) return dueCmp;
+      return a.originalIndex - b.originalIndex;
+    })
+    .map(row => row.it);
+
+  const after = scheduleItems.map(it => it.sku).join('|');
+  if (after === before) {
+    toast('Schedule is already sorted by like SKU', 'info');
+    return;
+  }
+
+  logAction(LOG.ITEM_REORDERED, { note: 'Auto sorted by base SKU' });
+  render();
+  markUnsaved();
+  toast('Sorted like SKUs together', 'ok');
 }
 
 
@@ -795,16 +953,10 @@ async function validateScheduleBeforeSave() {
   return { ok: blockedOrders.length === 0 && supplyBlocks.length === 0, blockedOrders: _dedupeByKey(blockedOrders, r => `${r.orderNum}|${r.sku}`), supplyBlocks: _dedupeByKey(supplyBlocks, r => `${r.sku}|${r.component}|${r.shortageSku}`) };
 }
 function showScheduleSaveBlockers(v) {
-  if (typeof showScheduleSaveBlockersModal === 'function') {
-    closeModal('modal-save');
-    showScheduleSaveBlockersModal(v);
-  } else {
-    const lines = ['Cannot save — resolve blocked items first.'];
-    if (v.blockedOrders.length) { lines.push(''); v.blockedOrders.slice(0,20).forEach(r => lines.push(`- ${r.orderNum} on ${r.sku}`)); }
-    if (v.supplyBlocks.length)  { lines.push(''); v.supplyBlocks.slice(0,20).forEach(r => lines.push(`- ${r.sku} blocked`)); }
-    alert(lines.join('\n'));
-  }
-  toast('Schedule has blocked orders or out-of-stock materials', 'err');
+  const lines = ['Cannot save this schedule yet. Remove or resolve these blocked items first.'];
+  if (v.blockedOrders.length) { lines.push('', 'Blocked order numbers:'); v.blockedOrders.slice(0, 30).forEach(r => lines.push(`- ${r.orderNum} on ${r.sku}${r.qty ? ` (qty ${r.qty})` : ''}`)); if (v.blockedOrders.length > 30) lines.push(`- ...and ${v.blockedOrders.length - 30} more`); }
+  if (v.supplyBlocks.length) { lines.push('', 'Out-of-stock material/BOM blocks:'); v.supplyBlocks.slice(0, 30).forEach(r => { if (r.source === 'bom') { const shortage = r.shortageSku && r.shortageSku !== r.component ? `; shortage profile ${r.shortageSku}` : ''; lines.push(`- ${r.sku} uses ${r.component}${shortage}${r.notes ? ` — ${r.notes}` : ''}`); } else lines.push(`- ${r.sku} is listed as out of stock${r.notes ? ` — ${r.notes}` : ''}`); }); if (v.supplyBlocks.length > 30) lines.push(`- ...and ${v.supplyBlocks.length - 30} more`); }
+  alert(lines.join('\n')); toast('Schedule has blocked orders or out-of-stock materials', 'err');
 }
 
 
