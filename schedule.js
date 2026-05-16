@@ -50,62 +50,6 @@ function matPrint(lbl, v) {
   return `<span class="print-mat">${lbl}:Need ${v.replace('need_', '')}</span>`;
 }
 
-
-const MATERIAL_READY_FALLBACK = 'Material';
-const MAT_EVENT_ACTOR_SEP = '::';
-
-function materialReadyLabelForRole(role) {
-  const cfg = role && MAT_HANDLER_CONFIG && MAT_HANDLER_CONFIG[role];
-  return cfg?.col || null;
-}
-
-function materialEventActorForRole(role) {
-  const name = String(currentUser?.name || '').trim();
-  return name && role ? `${name}${MAT_EVENT_ACTOR_SEP}${role}` : name;
-}
-
-function materialRoleFromEventActor(actor) {
-  const raw = String(actor || '').trim();
-  if (!raw) return null;
-  const parts = raw.split(MAT_EVENT_ACTOR_SEP);
-  const maybeRole = parts.length > 1 ? parts[parts.length - 1] : '';
-  return materialReadyLabelForRole(maybeRole) ? maybeRole : null;
-}
-
-function materialActorDisplayName(actor) {
-  return String(actor || '').split(MAT_EVENT_ACTOR_SEP)[0].trim();
-}
-
-function materialReadyLabelForActor(actor) {
-  const roleFromActor = materialRoleFromEventActor(actor);
-  if (roleFromActor) return materialReadyLabelForRole(roleFromActor);
-
-  const actorName = materialActorDisplayName(actor);
-  if (!actorName) return null;
-
-  // Supports admin/supervisor testing through View As. The persisted actor for
-  // new events includes the role, but this preserves correct labels before the
-  // event round-trips through Supabase.
-  if (currentUser && actorName === currentUser.name) {
-    return materialReadyLabelForRole(activeViewAs || currentUser.role);
-  }
-
-  const emp = (allEmployees || []).find(e => String(e.name || '').trim() === actorName);
-  return materialReadyLabelForRole(emp?.role);
-}
-
-async function ensureMaterialActorCache() {
-  // Material-ready badges are persisted in sts_material_events by actor. Load the
-  // employee role map so cell views can resolve actor -> material after refresh.
-  if ((allEmployees || []).some(e => e && e.role && MAT_HANDLER_CONFIG[e.role])) return;
-  try {
-    const rows = await sb('sts_employees?active=eq.true&select=name,role');
-    if (Array.isArray(rows) && rows.length) allEmployees = rows;
-  } catch (e) {
-    console.warn('Could not load employee role map for material badges:', e.message);
-  }
-}
-
 // ── Totals bar ──
 function updateTotals() {
   const bar = document.getElementById('totals-bar');
@@ -388,24 +332,18 @@ function render() {
     const ev = (typeof matEventState !== 'undefined' && matEventState[orderKey0]) || {};
     const evBits = [];
     if (ev.done && ev.doneByRole && Object.keys(ev.doneByRole).length) {
-      // One badge per unique material label — deduplicated so two handlers of the same type
-      // do not produce duplicate badges. The cell view must always call out the material
-      // specifically (Boxes, Lumber, Hardware, Bent Parts, Slings), never generic "Parts".
+      // One badge per unique material label — deduplicated.
+      // Labels are specific: "Boxes", "Lumber", "Hardware", "Bent Parts", "Slings"
       const seenLabels = new Set();
-      Object.entries(ev.doneByRole).forEach(([roleOrActor, lbl]) => {
-        const resolved = materialReadyLabelForRole(roleOrActor)
-          || materialReadyLabelForActor(roleOrActor)
-          || (lbl && lbl !== 'true' && lbl !== 'Parts' && lbl !== MATERIAL_READY_FALLBACK ? lbl : null)
-          || MATERIAL_READY_FALLBACK;
-        if (!seenLabels.has(resolved)) {
-          seenLabels.add(resolved);
-          evBits.push(`<span class="mat-event-badge mat-event-done">✓ ${schedEsc(resolved)} Ready</span>`);
+      Object.values(ev.doneByRole).forEach(lbl => {
+        const label = (lbl && lbl !== 'true') ? lbl : 'Parts';
+        if (!seenLabels.has(label)) {
+          seenLabels.add(label);
+          evBits.push(`<span class="mat-event-badge mat-event-done">&#10003; ${schedEsc(label)} Ready</span>`);
         }
       });
     } else if (ev.done) {
-      // Never render "Parts Ready". If a legacy event has no resolvable actor/role,
-      // keep the ready state visible with a neutral material label rather than dropping it.
-      evBits.push(`<span class="mat-event-badge mat-event-done">✓ ${schedEsc(MATERIAL_READY_FALLBACK)} Ready</span>`);
+      evBits.push('<span class="mat-event-badge mat-event-done">&#10003; Parts Ready</span>');
     }
     // Pulled / Prepped / Delivered ("To Cell") are internal handler states — not shown on cell view
     const matEventsRow = evBits.length ? `<div class="card-mat-events">${evBits.join('')}</div>` : '';
@@ -900,9 +838,9 @@ function renderHandlerDoneView(role, cfg, bldgFilter) {
 
   // Building filter pills
   const bldgPills = `<div class="mh-bldg-filter">
-    <button class="mh-bldg-pill${activeBldg === 'all' ? ' active' : ''}" onclick="renderHandlerDoneView('${jsArg(role)}',MAT_HANDLER_CONFIG['${jsArg(role)}'],'all')">All</button>
+    <button class="mh-bldg-pill${activeBldg === 'all' ? ' active' : ''}" onclick="renderHandlerDoneView('${role}',MAT_HANDLER_CONFIG['${role}'],'all')">All</button>
     ${Object.keys(campusBuildings).map(b =>
-      `<button class="mh-bldg-pill${activeBldg === b ? ' active' : ''}" onclick="renderHandlerDoneView('${jsArg(role)}',MAT_HANDLER_CONFIG['${jsArg(role)}'],'${jsArg(b)}')">${schedEsc(b)}</button>`
+      `<button class="mh-bldg-pill${activeBldg === b ? ' active' : ''}" onclick="renderHandlerDoneView('${role}',MAT_HANDLER_CONFIG['${role}'],'${b}')">${b}</button>`
     ).join('')}
   </div>`;
 
@@ -913,13 +851,13 @@ function renderHandlerDoneView(role, cfg, bldgFilter) {
   );
   const cellBtns = allCells.map(({ cn }) => {
     const active = cn === cellName ? ' mh-cell-active' : '';
-    return `<button class="mh-cell-pick${active}" onclick="handlerLoadCell('${jsArg(cn)}','${jsArg(role)}')">${schedEsc(cn)}</button>`;
+    return `<button class="mh-cell-pick${active}" onclick="handlerLoadCell('${cn.replace(/'/g,"\\'")}','${role}')">${cn}</button>`;
   }).join('');
 
   if (!scheduleItems.length) {
     wrap.innerHTML = `
       <div class="mh-cell-browser">
-        <div class="mh-cell-browser-label">${schedEsc(cfg.label)} — pick a cell to view its schedule</div>
+        <div class="mh-cell-browser-label">${cfg.label} — pick a cell to view its schedule</div>
         ${bldgPills}
         <div class="mh-cell-browser-list">${cellBtns}</div>
       </div>
@@ -941,13 +879,30 @@ function renderHandlerDoneView(role, cfg, bldgFilter) {
                     : it.orderType === 'replacement' ? '<span class="badge b-replacement" style="font-size:10px;padding:2px 4px;">Repl.</span>'
                     : '';
     const ordersStr = (it.orderNums && it.orderNums.length) ? it.orderNums.map(o => schedEsc(o)).join(', ') : '—';
+
+    // Show the material-specific need quantity for this handler's material type.
+    // cfg.field is null for box_handler (boxes = whole order qty).
+    // For other handlers, show "Need N" if a specific amount was set, or "✓ Have All" if not needed.
+    let needDisplay;
+    if (!cfg.field) {
+      needDisplay = `<span class="mhd-need-qty">&times;${schedEsc(String(it.qty))}</span>`;
+    } else {
+      const fieldVal = it[cfg.field];
+      if (!fieldVal || fieldVal === 'have_all') {
+        needDisplay = `<span class="mhd-need-none">&#10003; Have All</span>`;
+      } else {
+        const needNum = String(fieldVal).replace('need_', '');
+        needDisplay = `<span class="mhd-need-qty">Need ${schedEsc(needNum)}</span>`;
+      }
+    }
+
     rows += `<tr class="mh-done-row${isDone ? ' mh-row-done' : ''}">
       <td class="mhd-sku">${schedEsc(it.sku)} ${typeLabel}</td>
-      <td class="mhd-qty">×${schedEsc(String(it.qty))}</td>
+      <td class="mhd-qty">${needDisplay}</td>
       <td class="mhd-orders">${ordersStr}</td>
       <td class="mhd-action">
         <button class="mhd-done-btn${isDone ? ' is-done' : ''}" onclick="toggleHandlerDone('${jsArg(orderKey)}','${jsArg(it.sku)}','${jsArg(role)}',${idx})">
-          ${isDone ? '✓ Done' : 'Mark Done'}
+          ${isDone ? '&#10003; Done' : 'Mark Done'}
         </button>
       </td>
     </tr>`;
@@ -955,16 +910,16 @@ function renderHandlerDoneView(role, cfg, bldgFilter) {
 
   wrap.innerHTML = `
     <div class="mh-cell-browser">
-      <div class="mh-cell-browser-label">${schedEsc(cfg.label)}</div>
+      <div class="mh-cell-browser-label">${cfg.label}</div>
       ${bldgPills}
       <div class="mh-cell-browser-list">${cellBtns}</div>
     </div>
     <div class="mhd-header">
-      <span class="mhd-cell-name">${schedEsc(cellName)}</span>
+      <span class="mhd-cell-name">${cellName}</span>
       <span class="mhd-progress">${doneCt} / ${scheduleItems.length} done</span>
     </div>
     <div class="mh-table-wrap"><table class="mh-table mhd-table">
-      <thead><tr><th>SKU</th><th>Qty</th><th>Order(s)</th><th>Status</th></tr></thead>
+      <thead><tr><th>SKU</th><th>Need</th><th>Order(s)</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
 }
@@ -985,7 +940,6 @@ async function toggleHandlerDone(orderKey, sku, role, idx) {
   if (!matEventState[orderKey]) matEventState[orderKey] = {};
   const cfg = MAT_HANDLER_CONFIG[role];
   const doneLabel = cfg ? cfg.col : role.replace(/_/g, ' ');
-  const eventActor = materialEventActorForRole(role);
 
   // Track done per-handler-role so multiple handlers on the same order don't collide
   if (!matEventState[orderKey].doneByRole) matEventState[orderKey].doneByRole = {};
@@ -1001,29 +955,21 @@ async function toggleHandlerDone(orderKey, sku, role, idx) {
   }
 
   try {
-    // DB constraint only allows: pulled, prepped, delivered — use 'delivered' for handler Done.
-    // IMPORTANT: the DB has a unique constraint on (schedule_id, order_number, event_type).
-    // Handler-specific ready signals must allow Boxes + Lumber + Hardware on the same order,
-    // so these role-specific delivered rows are intentionally stored with schedule_id:null and
-    // reloaded by cell_name. PostgreSQL unique indexes allow multiple NULL schedule_id values.
+    // DB constraint only allows: pulled, prepped, delivered — use 'delivered' for handler Done
     if (nowDone) {
-      // Remove this handler's previous signal first so repeated clicks/reloads do not stack duplicates.
-      await sb(`sts_material_events?order_number=eq.${encodeURIComponent(orderKey)}&event_type=eq.delivered&cell_name=eq.${encodeURIComponent(cellName)}&actor=eq.${encodeURIComponent(eventActor)}`, 'DELETE').catch(() => {});
       await sb('sts_material_events', 'POST', {
-        schedule_id: null,
+        schedule_id: savedScheduleId || null,
         order_number: orderKey,
         sku,
         event_type: 'delivered',
-        actor: eventActor,
+        actor: currentUser.name,
         campus: currentUser.campus,
         cell_name: cellName,
         created_at: new Date().toISOString()
       }, { prefer: 'return=minimal' });
     } else {
       // Delete this handler's delivered event (filtered by actor so other handlers' records stay)
-      await sb(`sts_material_events?order_number=eq.${encodeURIComponent(orderKey)}&event_type=eq.delivered&cell_name=eq.${encodeURIComponent(cellName)}&actor=eq.${encodeURIComponent(eventActor)}`, 'DELETE');
-      // Cleanup compatibility: older builds stored only the actor name, with no role suffix.
-      await sb(`sts_material_events?order_number=eq.${encodeURIComponent(orderKey)}&event_type=eq.delivered&cell_name=eq.${encodeURIComponent(cellName)}&actor=eq.${encodeURIComponent(currentUser.name)}`, 'DELETE').catch(() => {});
+      await sb(`sts_material_events?order_number=eq.${encodeURIComponent(orderKey)}&event_type=eq.delivered&cell_name=eq.${encodeURIComponent(cellName)}&actor=eq.${encodeURIComponent(currentUser.name)}`, 'DELETE');
     }
   } catch(e) {
     console.warn('toggleHandlerDone DB error:', e.message);
@@ -1066,23 +1012,31 @@ async function loadMatEvents() {
     // Load ALL delivered events for this cell_name — these are handler "Done" signals.
     // We identify them by cell_name so they persist even when schedule_id differs between sessions.
     if (cellName) {
-      await ensureMaterialActorCache();
       const doneRows = await sb(`sts_material_events?cell_name=eq.${encodeURIComponent(cellName)}&event_type=eq.delivered&select=order_number,event_type,actor`);
-      const actorLabelCache = {};
+
+      // Build actor-name -> role lookup once from allEmployees.
+      // CRITICAL: doneByRole must be keyed by the handler ROLE string (e.g. 'box_handler'),
+      // NOT by actor name. renderHandlerDoneView checks doneByRole[role] to decide if an
+      // order is marked done — keying by actor name means the lookup never matches and
+      // handlers always appear unchecked + badge always shows "Parts" after a page reload.
+      const actorRoleMap = {};
+      (allEmployees || []).forEach(e => { actorRoleMap[e.name] = e.role; });
+
       (doneRows || []).forEach(r => {
         if (!matEventState[r.order_number]) matEventState[r.order_number] = {};
         matEventState[r.order_number].done = true;
         if (!matEventState[r.order_number].doneByRole) matEventState[r.order_number].doneByRole = {};
 
-        if (!(r.actor in actorLabelCache)) {
-          actorLabelCache[r.actor] = materialReadyLabelForActor(r.actor);
+        // Resolve role from employee list; fall back to actor name if employee not found
+        const resolvedRole = actorRoleMap[r.actor] || r.actor;
+        const cfg = MAT_HANDLER_CONFIG[resolvedRole];
+        // Material label e.g. "Boxes", "Lumber", "Hardware", "Bent Parts", "Slings"
+        const materialLabel = cfg ? cfg.col : 'Parts';
+
+        // Write once per role — deduplicate if the same handler submitted multiple rows
+        if (!matEventState[r.order_number].doneByRole[resolvedRole]) {
+          matEventState[r.order_number].doneByRole[resolvedRole] = materialLabel;
         }
-        const resolvedLabel = actorLabelCache[r.actor] || MATERIAL_READY_FALLBACK;
-        const actorName = materialActorDisplayName(r.actor);
-        const roleKey = materialRoleFromEventActor(r.actor)
-          || (allEmployees || []).find(e => String(e.name || '').trim() === actorName)?.role
-          || r.actor;
-        matEventState[r.order_number].doneByRole[roleKey] = resolvedLabel;
       });
     }
   } catch(e) { /* table may not exist yet */ }

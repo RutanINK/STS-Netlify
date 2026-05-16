@@ -271,6 +271,32 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
 .cell-pick-btn{font-family:var(--mono);font-size:12px;padding:7px 10px;border-radius:var(--radius-sm);border:1px solid var(--border2);background:var(--surface2);color:var(--text-muted);cursor:pointer;transition:all .12s;text-align:center;}
 .cell-pick-btn.selected{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);font-weight:700;}
 
+/* ── My Cells strip buttons (Schedule page header) ── */
+.mycell-strip-btn {
+  font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700;
+  padding: 5px 13px; border-radius: 20px;
+  border: 2px solid var(--border2); background: var(--surface2);
+  color: var(--text-muted); cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.mycell-strip-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.mycell-strip-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); font-weight: 700; }
+.mycell-strip-btn.down { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+.mycell-strip-btn.down.active { border-color: var(--red); background: var(--red-dim); }
+
+/* ── Urgency buttons (Help modal) ── */
+.urgency-btn {
+  font-family: var(--mono); font-size: var(--fs-xs); font-weight: 700;
+  padding: 7px 16px; border-radius: 20px;
+  border: 2px solid var(--border2); background: var(--surface2);
+  color: var(--text-muted); cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.urgency-btn:hover { border-color: var(--border); color: var(--text); background: var(--surface3); }
+
+/* Selected states — each level gets its own color */
+.urgency-btn[data-level="Low"].selected    { border-color: var(--green);  color: var(--green);  background: var(--green-dim); }
+.urgency-btn[data-level="Medium"].selected { border-color: var(--yellow); color: var(--yellow); background: var(--yellow-dim); }
+.urgency-btn[data-level="High"].selected   { border-color: var(--red);    color: var(--red);    background: var(--red-dim); }
+
 /* ── Edit card readonly display ── */
 .edit-card-readonly{font-family:var(--mono);font-size:var(--fs-base);font-weight:600;color:var(--text);background:var(--surface3);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;}
 
