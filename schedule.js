@@ -50,6 +50,62 @@ function matPrint(lbl, v) {
   return `<span class="print-mat">${lbl}:Need ${v.replace('need_', '')}</span>`;
 }
 
+
+const MATERIAL_READY_FALLBACK = 'Material';
+const MAT_EVENT_ACTOR_SEP = '::';
+
+function materialReadyLabelForRole(role) {
+  const cfg = role && MAT_HANDLER_CONFIG && MAT_HANDLER_CONFIG[role];
+  return cfg?.col || null;
+}
+
+function materialEventActorForRole(role) {
+  const name = String(currentUser?.name || '').trim();
+  return name && role ? `${name}${MAT_EVENT_ACTOR_SEP}${role}` : name;
+}
+
+function materialRoleFromEventActor(actor) {
+  const raw = String(actor || '').trim();
+  if (!raw) return null;
+  const parts = raw.split(MAT_EVENT_ACTOR_SEP);
+  const maybeRole = parts.length > 1 ? parts[parts.length - 1] : '';
+  return materialReadyLabelForRole(maybeRole) ? maybeRole : null;
+}
+
+function materialActorDisplayName(actor) {
+  return String(actor || '').split(MAT_EVENT_ACTOR_SEP)[0].trim();
+}
+
+function materialReadyLabelForActor(actor) {
+  const roleFromActor = materialRoleFromEventActor(actor);
+  if (roleFromActor) return materialReadyLabelForRole(roleFromActor);
+
+  const actorName = materialActorDisplayName(actor);
+  if (!actorName) return null;
+
+  // Supports admin/supervisor testing through View As. The persisted actor for
+  // new events includes the role, but this preserves correct labels before the
+  // event round-trips through Supabase.
+  if (currentUser && actorName === currentUser.name) {
+    return materialReadyLabelForRole(activeViewAs || currentUser.role);
+  }
+
+  const emp = (allEmployees || []).find(e => String(e.name || '').trim() === actorName);
+  return materialReadyLabelForRole(emp?.role);
+}
+
+async function ensureMaterialActorCache() {
+  // Material-ready badges are persisted in sts_material_events by actor. Load the
+  // employee role map so cell views can resolve actor -> material after refresh.
+  if ((allEmployees || []).some(e => e && e.role && MAT_HANDLER_CONFIG[e.role])) return;
+  try {
+    const rows = await sb('sts_employees?active=eq.true&select=name,role');
+    if (Array.isArray(rows) && rows.length) allEmployees = rows;
+  } catch (e) {
+    console.warn('Could not load employee role map for material badges:', e.message);
+  }
+}
+
 // ── Totals bar ──
 function updateTotals() {
   const bar = document.getElementById('totals-bar');
@@ -159,7 +215,7 @@ function ensureAutoSortButton() {
   btn.id = 'btn-auto-sort';
   btn.type = 'button';
   btn.textContent = 'Auto Sort';
-  btn.onclick = autoSortLikeSkus;
+  btn.onclick = openAutoSortModal;
   const loadWarranty = document.getElementById('btn-load-warranty-current');
   actions.insertBefore(btn, loadWarranty || actions.firstChild);
 }
@@ -189,6 +245,8 @@ function render() {
 
   const viewRole = activeViewAs || currentUser.role;
   if (MAT_ROLES.includes(viewRole)) {
+    // Handlers get their own dedicated view — hide the supervisor toolbar entirely
+    meta.style.display = 'none';
     list.style.display = 'none';
     showMatHandlerView(viewRole);
     return;
@@ -325,13 +383,31 @@ function render() {
         ? `<div class="card-mats" style="background:var(--yellow-dim);border-top:1px solid var(--yellow);"><span style="color:var(--yellow);font-size:12px;font-weight:600;">Low Quantity${shortageMaterialLabel ? `: ${schedEsc(shortageMaterialLabel)}` : ''}.${shortageNotes ? `<span style="color:var(--text-muted);margin-left:6px;">${schedEsc(shortageNotes)}</span>` : ''} ${isSup ? `<button class="btn btn-ghost btn-xs" style="margin-left:8px;" onclick="openShortageApprove('${jsArg(it.sku)}','${jsArg(shortageNotes)}','${jsArg(shortageImpact?.materialSku || '')}','${jsArg(shortageImpact?.componentSku || '')}','${jsArg(shortageImpact?.status || 'low_quantity')}')">Approve Override</button>` : 'A supervisor, manager, or admin must approve scheduling this SKU.'}</span></div>${normalMatsRow}`
         : normalMatsRow;
     const dragAttrs = canDrag ? `draggable="true" ondragstart="onDS(event,${realIdx})" ondragover="onDO(event,${realIdx})" ondrop="onDP(event,${realIdx})" ondragleave="onDL(event)" ondragend="onDE(event)"` : `draggable="false" title="Warranty items cannot be reordered"`;
-    // Material handler progress indicators
+    // Material handler progress indicators — shown on cell's schedule card
     const orderKey0 = (it.orderNums && it.orderNums[0]) || `idx_${realIdx}`;
     const ev = (typeof matEventState !== 'undefined' && matEventState[orderKey0]) || {};
     const evBits = [];
-    if (ev.pulled)    evBits.push('<span class="mat-event-badge mat-event-pulled">✓ Pulled</span>');
-    if (ev.prepped)   evBits.push('<span class="mat-event-badge mat-event-prepped">✓ Prepped</span>');
-    if (ev.delivered) evBits.push('<span class="mat-event-badge mat-event-delivered">✓ To Cell</span>');
+    if (ev.done && ev.doneByRole && Object.keys(ev.doneByRole).length) {
+      // One badge per unique material label — deduplicated so two handlers of the same type
+      // do not produce duplicate badges. The cell view must always call out the material
+      // specifically (Boxes, Lumber, Hardware, Bent Parts, Slings), never generic "Parts".
+      const seenLabels = new Set();
+      Object.entries(ev.doneByRole).forEach(([roleOrActor, lbl]) => {
+        const resolved = materialReadyLabelForRole(roleOrActor)
+          || materialReadyLabelForActor(roleOrActor)
+          || (lbl && lbl !== 'true' && lbl !== 'Parts' && lbl !== MATERIAL_READY_FALLBACK ? lbl : null)
+          || MATERIAL_READY_FALLBACK;
+        if (!seenLabels.has(resolved)) {
+          seenLabels.add(resolved);
+          evBits.push(`<span class="mat-event-badge mat-event-done">✓ ${schedEsc(resolved)} Ready</span>`);
+        }
+      });
+    } else if (ev.done) {
+      // Never render "Parts Ready". If a legacy event has no resolvable actor/role,
+      // keep the ready state visible with a neutral material label rather than dropping it.
+      evBits.push(`<span class="mat-event-badge mat-event-done">✓ ${schedEsc(MATERIAL_READY_FALLBACK)} Ready</span>`);
+    }
+    // Pulled / Prepped / Delivered ("To Cell") are internal handler states — not shown on cell view
     const matEventsRow = evBits.length ? `<div class="card-mat-events">${evBits.join('')}</div>` : '';
     html.push(`<div class="${cls.join(' ')}" ${dragAttrs} data-idx="${realIdx}"><div class="card-row"><span class="card-drag" style="${canDrag ? '' : 'opacity:.2;cursor:not-allowed;'}">&#8942;</span><div class="card-sku"><div class="card-sku-top"><span class="card-sku-name">${schedEsc(it.sku)}</span><span class="takt-pill">${schedEsc(it.taktStr)}</span>${dueBadge(it.dueDate)}<div class="card-badges">${badges.join('')}</div>${srcTags}</div>${it.description ? `<div class="card-sku-desc">${schedEsc(it.description)}</div>` : ''}${qtyDisplay}${matEventsRow}<div class="card-orders-wrap">${ordersToggle}${ordersPanel}</div></div><div class="card-right">${mustShipToggle}<button class="card-remove-btn" onclick="removeCard(${realIdx})">Remove</button></div></div>${matsRow}</div>`);
   });
@@ -385,48 +461,23 @@ function toggleOrderDone(realIdx, orderNum) {
 }
 
 // ── Order done for warranty/replacement — prompts supervisor inspection ──
-// Uses upsert logic: checks for an existing pending record before inserting,
-// so clicking Done multiple times (or two users on the same schedule) never
-// creates duplicate inspection rows.
 function toggleOrderDoneWithInspect(realIdx, orderNum, sku, orderType) {
   if (!orderDoneState[realIdx]) orderDoneState[realIdx] = {};
   const nowDone = !orderDoneState[realIdx][orderNum];
   orderDoneState[realIdx][orderNum] = nowDone;
-
   if (nowDone) {
     const typeLabel = orderType === 'warranty' ? 'Warranty' : 'Full Replacement';
     pendingInspections.push({ orderNum, sku, typeLabel, cell: cellName, markedBy: currentUser.name, markedAt: new Date().toISOString() });
-
-    // Upsert: only insert if no pending row already exists for this order_number + campus.
-    // This prevents duplicates from: double-clicks, undo→redo, or two supervisors on the same cell.
-    (async () => {
-      try {
-        const existing = await sb(
-          `sts_inspection_queue?order_number=eq.${encodeURIComponent(orderNum)}&campus=eq.${currentUser.campus}&status=eq.pending&select=id&limit=1`
-        ).catch(() => []);
-        if (!existing || !existing.length) {
-          await sb('sts_inspection_queue?select=id', 'POST', {
-            order_number: orderNum, sku, order_type: orderType, cell_name: cellName,
-            marked_by: currentUser.name, campus: currentUser.campus, status: 'pending',
-            created_at: new Date().toISOString()
-          });
-        }
-        // else: row already exists, nothing to do
-      } catch(e) {
-        console.warn('Inspection queue write failed:', e.message);
-      }
-    })();
-
+    sb('sts_inspection_queue?select=id', 'POST', {
+      order_number: orderNum, sku, order_type: orderType, cell_name: cellName,
+      marked_by: currentUser.name, campus: currentUser.campus, status: 'pending',
+      created_at: new Date().toISOString()
+    }).catch(() => {});
     logAction(LOG.INSPECT_REQUESTED, { sku, order_number: orderNum, note: typeLabel + ' marked done' });
     toast(`${typeLabel} marked done — supervisor notified to inspect`, 'info');
   } else {
-    // Undo: remove the pending inspection row so the supervisor isn't notified for an undone item
-    sb(`sts_inspection_queue?order_number=eq.${encodeURIComponent(orderNum)}&campus=eq.${currentUser.campus}&status=eq.pending`, 'DELETE')
-      .catch(() => {});
-    pendingInspections = pendingInspections.filter(p => String(p.orderNum).toUpperCase() !== String(orderNum).toUpperCase());
     logAction(LOG.ORDER_UNDONE, { sku, order_number: orderNum });
   }
-
   // Auto-persist done state if schedule is already saved
   if (savedScheduleId) {
     sb('sts_schedules?id=eq.' + savedScheduleId, 'PATCH', { order_done_state: JSON.stringify(orderDoneState) }, { prefer: 'return=minimal' }).catch(() => {});
@@ -443,100 +494,80 @@ function toggleOrdersPanel(btn) {
 }
 
 
-// ── Auto sort modal ──
+// ── Auto sort — group like SKUs together, ignoring color suffixes ──
 function openAutoSortModal() {
   if (!scheduleItems.length) { toast('No schedule loaded to sort', 'info'); return; }
-  let modal = document.getElementById('modal-auto-sort');
-  if (!modal) {
-    document.body.insertAdjacentHTML('beforeend', `
-      <div class="modal-bd" id="modal-auto-sort">
-        <div class="modal" style="max-width:460px;">
-          <div class="modal-title">Auto Sort</div>
-          <div class="modal-sub" style="margin-bottom:16px;">Choose how to reorder the schedule:</div>
-          <div style="display:flex;flex-direction:column;gap:10px;">
-            <button class="sort-option-btn" onclick="autoSortApply('like_skus')">
-              <span class="sort-opt-title">🔡 Like SKUs Together</span>
-              <span class="sort-opt-desc">Groups matching base SKUs (ignores color suffixes). Minimizes changeovers.</span>
-            </button>
-            <button class="sort-option-btn" onclick="autoSortApply('due_date')">
-              <span class="sort-opt-title">📅 By Due Date</span>
-              <span class="sort-opt-desc">Earliest due dates first. Items without a due date go last.</span>
-            </button>
-            <button class="sort-option-btn" onclick="autoSortApply('must_ships')">
-              <span class="sort-opt-title">🚨 Must Ships First</span>
-              <span class="sort-opt-desc">Bumps all Must Ship items to the top, then sorts remaining by due date.</span>
-            </button>
-            <button class="sort-option-btn" onclick="autoSortApply('full_replacements')">
-              <span class="sort-opt-title">🔄 Full Replacements First</span>
-              <span class="sort-opt-desc">Prioritizes warranty & full replacement orders at the top.</span>
-            </button>
-          </div>
-          <div class="modal-actions" style="margin-top:18px;">
-            <button class="btn btn-ghost" onclick="closeModal('modal-auto-sort')">Cancel</button>
-          </div>
-        </div>
-      </div>`);
-  }
   document.getElementById('modal-auto-sort').classList.add('open');
 }
 
-function autoSortApply(mode) {
+// Called by each sort option button in the modal
+function runAutoSort(mode) {
   closeModal('modal-auto-sort');
   if (!scheduleItems.length) return;
-  const before = scheduleItems.map(it => it.sku + '|' + it.orderNum).join('||');
+  const before = scheduleItems.map(it => it.sku + '|' + it.dueDate).join('~');
 
-  const dueSortVal = (it) => {
-    const d = scheduleDaysDiff(it.dueDate);
-    return d === null ? 9999 : d;
-  };
+  switch (mode) {
+    case 'like-sku':
+      scheduleItems = scheduleItems
+        .map((it, i) => ({ it, i }))
+        .sort((a, b) => {
+          const aBase = baseSku(a.it.sku), bBase = baseSku(b.it.sku);
+          if (aBase !== bBase) return aBase.localeCompare(bBase, undefined, { numeric: true, sensitivity: 'base' });
+          const skuCmp = String(a.it.sku).localeCompare(String(b.it.sku), undefined, { numeric: true, sensitivity: 'base' });
+          if (skuCmp) return skuCmp;
+          const dueCmp = String(a.it.dueDate || '').localeCompare(String(b.it.dueDate || ''));
+          return dueCmp || a.i - b.i;
+        })
+        .map(r => r.it);
+      break;
 
-  if (mode === 'like_skus') {
-    scheduleItems = scheduleItems
-      .map((it, i) => ({ it, i }))
-      .sort((a, b) => {
-        const aBase = baseSku(a.it.sku), bBase = baseSku(b.it.sku);
-        if (aBase !== bBase) return aBase.localeCompare(bBase, undefined, { numeric: true, sensitivity: 'base' });
-        const skuCmp = String(a.it.sku || '').localeCompare(String(b.it.sku || ''), undefined, { numeric: true, sensitivity: 'base' });
-        if (skuCmp) return skuCmp;
-        const dueCmp = dueSortVal(a.it) - dueSortVal(b.it);
-        if (dueCmp) return dueCmp;
-        return a.i - b.i;
-      })
-      .map(r => r.it);
+    case 'due-date':
+      scheduleItems = scheduleItems
+        .map((it, i) => ({ it, i }))
+        .sort((a, b) => {
+          const ad = a.it.dueDate, bd = b.it.dueDate;
+          if (ad && bd) return ad.localeCompare(bd);
+          if (ad && !bd) return -1;
+          if (!ad && bd) return  1;
+          return a.i - b.i;
+        })
+        .map(r => r.it);
+      break;
 
-  } else if (mode === 'due_date') {
-    scheduleItems = scheduleItems
-      .map((it, i) => ({ it, i }))
-      .sort((a, b) => {
-        const da = dueSortVal(a.it), db = dueSortVal(b.it);
-        if (da !== db) return da - db;
-        return a.i - b.i;
-      })
-      .map(r => r.it);
+    case 'takt-asc':
+      scheduleItems = [...scheduleItems].sort((a, b) => (a.taktMins || 0) - (b.taktMins || 0));
+      break;
 
-  } else if (mode === 'must_ships') {
-    const mustShip = scheduleItems.filter(it => it.mustShip);
-    const rest     = scheduleItems.filter(it => !it.mustShip);
-    const sortByDue = arr => [...arr].sort((a, b) => dueSortVal(a) - dueSortVal(b));
-    scheduleItems = [...sortByDue(mustShip), ...sortByDue(rest)];
+    case 'takt-desc':
+      scheduleItems = [...scheduleItems].sort((a, b) => (b.taktMins || 0) - (a.taktMins || 0));
+      break;
 
-  } else if (mode === 'full_replacements') {
-    const replacements = scheduleItems.filter(it => it.orderType === 'replacement' || it.orderType === 'warranty');
-    const rest         = scheduleItems.filter(it => it.orderType !== 'replacement' && it.orderType !== 'warranty');
-    const sortByDue = arr => [...arr].sort((a, b) => dueSortVal(a) - dueSortVal(b));
-    scheduleItems = [...sortByDue(replacements), ...sortByDue(rest)];
+    case 'must-ship':
+      scheduleItems = scheduleItems
+        .map((it, i) => ({ it, i }))
+        .sort((a, b) => {
+          if (a.it.mustShip !== b.it.mustShip) return a.it.mustShip ? -1 : 1;
+          const ad = a.it.dueDate, bd = b.it.dueDate;
+          if (ad && bd) return ad.localeCompare(bd);
+          if (ad && !bd) return -1;
+          if (!ad && bd) return  1;
+          return a.i - b.i;
+        })
+        .map(r => r.it);
+      break;
+
+    default:
+      return;
   }
 
-  const after = scheduleItems.map(it => it.sku + '|' + it.orderNum).join('||');
+  const after = scheduleItems.map(it => it.sku + '|' + it.dueDate).join('~');
   if (after === before) { toast('Already sorted that way', 'info'); return; }
-
-  const labels = { like_skus: 'like SKUs', due_date: 'due date', must_ships: 'Must Ships first', full_replacements: 'Replacements first' };
-  logAction(LOG.ITEM_REORDERED, { note: 'Auto sorted by ' + mode });
+  logAction(LOG.ITEM_REORDERED, { note: 'Auto sorted: ' + mode });
   render(); markUnsaved();
-  toast('Sorted by ' + (labels[mode] || mode), 'ok');
+  toast('Schedule sorted', 'ok');
 }
 
-// Keep old name as alias so ensureAutoSortButton wiring still works
+// Legacy alias — still called by ensureAutoSortButton in older cached HTML
 function autoSortLikeSkus() { openAutoSortModal(); }
 
 
@@ -855,97 +886,161 @@ function showMatHandlerView(role) {
   document.getElementById('schedule-list').style.display = 'none';
   document.getElementById('empty-state').style.display  = 'none';
   const wrap = document.getElementById('mat-handler-view'); wrap.style.display = 'flex';
-  if (!scheduleItems.length) { wrap.innerHTML = '<div class="mh-cell-selector"><span>No schedule loaded.</span></div>'; return; }
-  scheduleItems.forEach((_, idx) => { if (!mhCheckState[idx]) mhCheckState[idx] = { done: false, comment: '' }; });
-  if (cfg.showBoxGroups) renderBoxHandlerView(cfg); else renderMatHandlerTable(role, cfg);
+  renderHandlerDoneView(role, cfg);
 }
 
-function renderBoxHandlerView(cfg) {
+// Simplified "Done" view — one button per SKU/order, no pulled/prepped/delivered complexity
+function renderHandlerDoneView(role, cfg, bldgFilter) {
   const wrap = document.getElementById('mat-handler-view');
-  const groups = []; let curGroup = { baseSkus: [], totalBoxes: 0, totalQty: 0, items: [] };
+  const campusBuildings = getBuildingsForCampus(currentUser.campus);
+
+  // Building filter — remember last selection
+  if (bldgFilter !== undefined) wrap._bldgFilter = bldgFilter;
+  const activeBldg = wrap._bldgFilter || 'all';
+
+  // Building filter pills
+  const bldgPills = `<div class="mh-bldg-filter">
+    <button class="mh-bldg-pill${activeBldg === 'all' ? ' active' : ''}" onclick="renderHandlerDoneView('${jsArg(role)}',MAT_HANDLER_CONFIG['${jsArg(role)}'],'all')">All</button>
+    ${Object.keys(campusBuildings).map(b =>
+      `<button class="mh-bldg-pill${activeBldg === b ? ' active' : ''}" onclick="renderHandlerDoneView('${jsArg(role)}',MAT_HANDLER_CONFIG['${jsArg(role)}'],'${jsArg(b)}')">${schedEsc(b)}</button>`
+    ).join('')}
+  </div>`;
+
+  // Cell list filtered by building
+  const allCells = Object.entries(campusBuildings).flatMap(([bldg, v]) =>
+    activeBldg !== 'all' && bldg !== activeBldg ? [] :
+    (v.cellNames || []).filter(cn => !/secondary/i.test(cn)).map(cn => ({ cn, bldg }))
+  );
+  const cellBtns = allCells.map(({ cn }) => {
+    const active = cn === cellName ? ' mh-cell-active' : '';
+    return `<button class="mh-cell-pick${active}" onclick="handlerLoadCell('${jsArg(cn)}','${jsArg(role)}')">${schedEsc(cn)}</button>`;
+  }).join('');
+
+  if (!scheduleItems.length) {
+    wrap.innerHTML = `
+      <div class="mh-cell-browser">
+        <div class="mh-cell-browser-label">${schedEsc(cfg.label)} — pick a cell to view its schedule</div>
+        ${bldgPills}
+        <div class="mh-cell-browser-list">${cellBtns}</div>
+      </div>
+      <div class="mh-empty">No schedule loaded for this cell.</div>`;
+    return;
+  }
+
+  const doneCt = scheduleItems.filter((it, idx) => {
+    const key = (it.orderNums && it.orderNums[0]) || `idx_${idx}`;
+    return !!(matEventState[key]?.doneByRole?.[role]);
+  }).length;
+
+  let rows = '';
   scheduleItems.forEach((it, idx) => {
-    const isNewCO = idx > 0 && baseSku(scheduleItems[idx].sku) !== baseSku(scheduleItems[idx - 1].sku);
-    if (isNewCO && curGroup.items.length) { groups.push({ ...curGroup }); curGroup = { baseSkus: [], totalBoxes: 0, totalQty: 0, items: [] }; }
-    const bs = baseSku(it.sku); if (!curGroup.baseSkus.includes(bs)) curGroup.baseSkus.push(bs);
-    const boxNeed = it.boxes === 'have_all' ? 0 : parseInt(it.boxes.replace('need_', '')) || 0;
-    curGroup.totalBoxes += boxNeed; curGroup.totalQty += it.qty; curGroup.items.push({ ...it, idx, boxNeed });
-  });
-  if (curGroup.items.length) groups.push(curGroup);
-  const totalBoxes = groups.reduce((s, g) => s + g.totalBoxes, 0);
-  let html = `<div class="mh-cell-selector"><span style="font-size:13px;font-weight:600;">Box Handler — ${cellName}</span><span class="meta-chip">${groups.length} changeover groups</span><span class="meta-chip" style="color:var(--yellow);">Total boxes needed: ${totalBoxes}</span></div>
-<div class="mh-table-wrap"><table class="mh-table">
-<thead><tr><th>SKU</th><th>Qty</th><th>Order(s)</th><th>Type</th><th>Boxes</th><th>Done</th><th>Note</th></tr></thead><tbody>`;
-  groups.forEach((g, gi) => {
-    const gKey = 'g' + gi; if (!mhCheckState[gKey]) mhCheckState[gKey] = { done: false, comment: '' };
-    const isDone = mhCheckState[gKey].done;
-    // Group header row
-    html += `<tr class="mh-group-row${isDone ? ' mh-done' : ''}">
-      <td colspan="4"><span class="mh-box-group">${g.baseSkus.join(' · ')}</span> <span style="font-size:10px;color:var(--text-dim);">${g.items.length} color${g.items.length !== 1 ? 's' : ''}</span></td>
-      <td>${g.totalBoxes > 0 ? `<span class="${isDone ? '' : 'mh-need'}">Need ${g.totalBoxes}</span>` : '<span class="mh-have">Have All</span>'}</td>
-      <td><input type="checkbox" class="mh-check" ${isDone ? 'checked' : ''} onchange="mhToggle('${gKey}',this.checked)"></td>
-      <td><input type="text" class="mh-comment" placeholder="Note…" value="${mhCheckState[gKey].comment || ''}" oninput="mhComment('${gKey}',this.value)"></td>
+    const orderKey = (it.orderNums && it.orderNums[0]) || `idx_${idx}`;
+    // Check done state specific to THIS handler role
+    const isDone = !!(matEventState[orderKey]?.doneByRole?.[role]);
+    const typeLabel = it.orderType === 'warranty'    ? '<span class="badge b-warranty" style="font-size:10px;padding:2px 4px;">Warranty</span>'
+                    : it.orderType === 'replacement' ? '<span class="badge b-replacement" style="font-size:10px;padding:2px 4px;">Repl.</span>'
+                    : '';
+    const ordersStr = (it.orderNums && it.orderNums.length) ? it.orderNums.map(o => schedEsc(o)).join(', ') : '—';
+    rows += `<tr class="mh-done-row${isDone ? ' mh-row-done' : ''}">
+      <td class="mhd-sku">${schedEsc(it.sku)} ${typeLabel}</td>
+      <td class="mhd-qty">×${schedEsc(String(it.qty))}</td>
+      <td class="mhd-orders">${ordersStr}</td>
+      <td class="mhd-action">
+        <button class="mhd-done-btn${isDone ? ' is-done' : ''}" onclick="toggleHandlerDone('${jsArg(orderKey)}','${jsArg(it.sku)}','${jsArg(role)}',${idx})">
+          ${isDone ? '✓ Done' : 'Mark Done'}
+        </button>
+      </td>
     </tr>`;
-    // Individual SKU rows within group
-    g.items.forEach(it => {
-      const itemDone = mhCheckState[it.idx]?.done || it.boxes === 'have_all';
-      const orders   = (it.orderNums && it.orderNums.length) ? it.orderNums.join(', ') : '—';
-      const typeLabel = it.orderType === 'warranty' ? '<span class="badge b-warranty" style="font-size:10px;padding:2px 5px;">Warranty</span>' : it.orderType === 'replacement' ? '<span class="badge b-replacement" style="font-size:10px;padding:2px 5px;">Repl.</span>' : '';
-      const boxVal   = it.boxes === 'have_all' ? '<span class="mh-have">Have All</span>' : `<span class="${itemDone ? '' : 'mh-need'}">Need ${it.boxes.replace('need_', '')}</span>`;
-      html += `<tr class="mh-item-row${itemDone ? ' mh-done' : ''}">
-        <td class="mh-sku">${it.sku}</td>
-        <td class="mh-qty">×${it.qty}</td>
-        <td class="mh-orders">${orders}</td>
-        <td>${typeLabel}</td>
-        <td>${boxVal}</td>
-        <td></td><td></td>
-      </tr>`;
-    });
   });
-  html += '</tbody></table></div>'; wrap.innerHTML = html;
+
+  wrap.innerHTML = `
+    <div class="mh-cell-browser">
+      <div class="mh-cell-browser-label">${schedEsc(cfg.label)}</div>
+      ${bldgPills}
+      <div class="mh-cell-browser-list">${cellBtns}</div>
+    </div>
+    <div class="mhd-header">
+      <span class="mhd-cell-name">${schedEsc(cellName)}</span>
+      <span class="mhd-progress">${doneCt} / ${scheduleItems.length} done</span>
+    </div>
+    <div class="mh-table-wrap"><table class="mh-table mhd-table">
+      <thead><tr><th>SKU</th><th>Qty</th><th>Order(s)</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
 }
 
+async function handlerLoadCell(cn, role) {
+  try {
+    const scheds = await sb(`sts_schedules?cell_name=eq.${encodeURIComponent(cn)}&campus=eq.${currentUser.campus}&order=created_at.desc&limit=1&select=id`);
+    if (!scheds || !scheds.length) { toast('No schedule for ' + cn, 'info'); cellName = cn; scheduleItems = []; showMatHandlerView(role); return; }
+    await loadSchedule(scheds[0].id);
+    // After load, schedule-list is shown; switch back to handler view
+    document.getElementById('schedule-list').style.display = 'none';
+    document.getElementById('mat-handler-view').style.display = 'flex';
+    showMatHandlerView(role);
+  } catch(e) { toast('Load failed: ' + e.message, 'err'); }
+}
+
+async function toggleHandlerDone(orderKey, sku, role, idx) {
+  if (!matEventState[orderKey]) matEventState[orderKey] = {};
+  const cfg = MAT_HANDLER_CONFIG[role];
+  const doneLabel = cfg ? cfg.col : role.replace(/_/g, ' ');
+  const eventActor = materialEventActorForRole(role);
+
+  // Track done per-handler-role so multiple handlers on the same order don't collide
+  if (!matEventState[orderKey].doneByRole) matEventState[orderKey].doneByRole = {};
+  const wasRoleDone = !!matEventState[orderKey].doneByRole[role];
+  const nowDone = !wasRoleDone;
+
+  if (nowDone) {
+    matEventState[orderKey].doneByRole[role] = doneLabel;
+    matEventState[orderKey].done = true;
+  } else {
+    delete matEventState[orderKey].doneByRole[role];
+    matEventState[orderKey].done = Object.keys(matEventState[orderKey].doneByRole).length > 0;
+  }
+
+  try {
+    // DB constraint only allows: pulled, prepped, delivered — use 'delivered' for handler Done.
+    // IMPORTANT: the DB has a unique constraint on (schedule_id, order_number, event_type).
+    // Handler-specific ready signals must allow Boxes + Lumber + Hardware on the same order,
+    // so these role-specific delivered rows are intentionally stored with schedule_id:null and
+    // reloaded by cell_name. PostgreSQL unique indexes allow multiple NULL schedule_id values.
+    if (nowDone) {
+      // Remove this handler's previous signal first so repeated clicks/reloads do not stack duplicates.
+      await sb(`sts_material_events?order_number=eq.${encodeURIComponent(orderKey)}&event_type=eq.delivered&cell_name=eq.${encodeURIComponent(cellName)}&actor=eq.${encodeURIComponent(eventActor)}`, 'DELETE').catch(() => {});
+      await sb('sts_material_events', 'POST', {
+        schedule_id: null,
+        order_number: orderKey,
+        sku,
+        event_type: 'delivered',
+        actor: eventActor,
+        campus: currentUser.campus,
+        cell_name: cellName,
+        created_at: new Date().toISOString()
+      }, { prefer: 'return=minimal' });
+    } else {
+      // Delete this handler's delivered event (filtered by actor so other handlers' records stay)
+      await sb(`sts_material_events?order_number=eq.${encodeURIComponent(orderKey)}&event_type=eq.delivered&cell_name=eq.${encodeURIComponent(cellName)}&actor=eq.${encodeURIComponent(eventActor)}`, 'DELETE');
+      // Cleanup compatibility: older builds stored only the actor name, with no role suffix.
+      await sb(`sts_material_events?order_number=eq.${encodeURIComponent(orderKey)}&event_type=eq.delivered&cell_name=eq.${encodeURIComponent(cellName)}&actor=eq.${encodeURIComponent(currentUser.name)}`, 'DELETE').catch(() => {});
+    }
+  } catch(e) {
+    console.warn('toggleHandlerDone DB error:', e.message);
+  }
+
+  if (cfg) renderHandlerDoneView(role, cfg, document.getElementById('mat-handler-view')?._bldgFilter);
+}
+
+// Legacy compat — keep old function names referenced elsewhere
+function renderBoxHandlerView(cfg) {
+  const role = activeViewAs || currentUser.role;
+  const wrap = document.getElementById('mat-handler-view');
+  renderHandlerDoneView(role, cfg, wrap?._bldgFilter);
+}
 function renderMatHandlerTable(role, cfg) {
   const wrap = document.getElementById('mat-handler-view');
-  const totalNeed = scheduleItems.filter(it => it[cfg.field] && it[cfg.field] !== 'have_all').length;
-  let html = `<div class="mh-cell-selector"><span style="font-size:13px;font-weight:600;">${cfg.col} Handler — ${cellName}</span><span class="meta-chip">${totalNeed} need ${cfg.col.toLowerCase()}</span></div>
-<div class="mh-table-wrap"><table class="mh-table">
-<thead><tr><th>#</th><th>SKU</th><th>Qty</th><th>Order(s)</th><th>Type</th><th>${cfg.col}</th><th>Pulled</th><th>Prepped</th><th>Delivered</th><th>Note</th></tr></thead><tbody>`;
-  scheduleItems.forEach((it, idx) => {
-    const isNewCO = idx > 0 && baseSku(scheduleItems[idx].sku) !== baseSku(scheduleItems[idx - 1].sku);
-    const val     = it[cfg.field];
-    const hasAll  = !val || val === 'have_all';
-    const isDone  = mhCheckState[idx]?.done || hasAll;
-    const orders  = (it.orderNums && it.orderNums.length) ? it.orderNums : [];
-    const ordersStr = orders.length ? orders.join(', ') : '—';
-    const typeLabel = it.orderType === 'warranty'    ? '<span class="badge b-warranty" style="font-size:10px;padding:2px 5px;">Warranty</span>'
-                    : it.orderType === 'replacement' ? '<span class="badge b-replacement" style="font-size:10px;padding:2px 5px;">Repl.</span>'
-                    : '';
-    const matHtml = hasAll ? '<span class="mh-have">Have All</span>'
-      : isDone ? '<span class="mh-have">Done</span>'
-      : `<span class="mh-need">Need ${val.replace('need_', '')}</span>`;
-
-    // Per-order pull/prep/deliver — use first order number as key
-    const orderKey = orders[0] || `idx_${idx}`;
-    const ev = matEventState[orderKey] || {};
-    const pulled    = ev.pulled    || false;
-    const prepped   = ev.prepped   || false;
-    const delivered = ev.delivered || false;
-    const deliveredCls = delivered ? ' mh-delivered' : '';
-
-    html += `<tr class="${isNewCO ? 'mh-co-row' : ''}${isDone ? ' mh-done' : ''}${deliveredCls}">
-      <td style="color:var(--text-dim);font-size:11px;">${idx + 1}</td>
-      <td class="mh-sku">${it.sku}</td>
-      <td class="mh-qty">×${it.qty}</td>
-      <td class="mh-orders">${ordersStr}</td>
-      <td>${typeLabel}</td>
-      <td>${matHtml}</td>
-      <td><label class="mh-event-lbl"><input type="checkbox" class="mh-check" ${pulled ? 'checked' : ''} onchange="setMatEvent('${orderKey}','${it.sku}','pulled',this.checked)"><span>Pulled</span></label></td>
-      <td><label class="mh-event-lbl"><input type="checkbox" class="mh-check" ${prepped ? 'checked' : ''} onchange="setMatEvent('${orderKey}','${it.sku}','prepped',this.checked)"><span>Prepped</span></label></td>
-      <td><label class="mh-event-lbl"><input type="checkbox" class="mh-check" ${delivered ? 'checked' : ''} onchange="setMatEvent('${orderKey}','${it.sku}','delivered',this.checked)"><span>To Cell</span></label></td>
-      <td><input type="text" class="mh-comment" placeholder="Note…" value="${mhCheckState[idx]?.comment || ''}" oninput="mhComment(${idx},this.value)"></td>
-    </tr>`;
-  });
-  html += '</tbody></table></div>'; wrap.innerHTML = html;
+  renderHandlerDoneView(role, cfg, wrap?._bldgFilter);
 }
 
 // ── Material event workflow ──
@@ -954,14 +1049,42 @@ function renderMatHandlerTable(role, cfg) {
 let matEventState = {};
 
 async function loadMatEvents() {
-  if (!savedScheduleId) return;
+  if (!savedScheduleId && !cellName) return;
   try {
-    const rows = await sb(`sts_material_events?schedule_id=eq.${savedScheduleId}&select=order_number,event_type`);
     matEventState = {};
-    (rows || []).forEach(r => {
-      if (!matEventState[r.order_number]) matEventState[r.order_number] = {};
-      matEventState[r.order_number][r.event_type] = true;
-    });
+
+    // Load all events tied to this schedule_id (supervisor workflow: pulled/prepped/delivered)
+    if (savedScheduleId) {
+      const rows = await sb(`sts_material_events?schedule_id=eq.${savedScheduleId}&select=order_number,event_type,actor`);
+      (rows || []).forEach(r => {
+        if (!matEventState[r.order_number]) matEventState[r.order_number] = {};
+        // Mark pulled/prepped for internal tracking — NOT shown as badges on the cell view
+        matEventState[r.order_number][r.event_type] = true;
+      });
+    }
+
+    // Load ALL delivered events for this cell_name — these are handler "Done" signals.
+    // We identify them by cell_name so they persist even when schedule_id differs between sessions.
+    if (cellName) {
+      await ensureMaterialActorCache();
+      const doneRows = await sb(`sts_material_events?cell_name=eq.${encodeURIComponent(cellName)}&event_type=eq.delivered&select=order_number,event_type,actor`);
+      const actorLabelCache = {};
+      (doneRows || []).forEach(r => {
+        if (!matEventState[r.order_number]) matEventState[r.order_number] = {};
+        matEventState[r.order_number].done = true;
+        if (!matEventState[r.order_number].doneByRole) matEventState[r.order_number].doneByRole = {};
+
+        if (!(r.actor in actorLabelCache)) {
+          actorLabelCache[r.actor] = materialReadyLabelForActor(r.actor);
+        }
+        const resolvedLabel = actorLabelCache[r.actor] || MATERIAL_READY_FALLBACK;
+        const actorName = materialActorDisplayName(r.actor);
+        const roleKey = materialRoleFromEventActor(r.actor)
+          || (allEmployees || []).find(e => String(e.name || '').trim() === actorName)?.role
+          || r.actor;
+        matEventState[r.order_number].doneByRole[roleKey] = resolvedLabel;
+      });
+    }
   } catch(e) { /* table may not exist yet */ }
 }
 
@@ -1106,6 +1229,11 @@ async function loadWarrantiesManual() {
 async function loadSchedule(id) {
   try {
     const [sched] = await sb('sts_schedules?id=eq.' + id + '&select=*');
+    // Guard: reject schedules that don't belong to the current campus
+    if (sched.campus && sched.campus !== currentUser.campus) {
+      toast(`That schedule is from campus ${sched.campus}, but you are on ${currentUser.campus}.`, 'err');
+      return;
+    }
     const items   = await sb('sts_schedule_items?schedule_id=eq.' + id + '&order=sort_order.asc');
     cellName = sched.cell_name; savedScheduleId = id; variantSources = [];
     scheduleItems = items.map(it => ({
@@ -1132,7 +1260,6 @@ async function loadSchedule(id) {
     logAction(LOG.SCHEDULE_LOADED, { schedule_id: id, note: cellName });
     await loadMatEvents();
     render(); toast('Loaded ' + cellName, 'ok');
-    startWarrantyPoll();
   } catch (e) { toast('Load failed: ' + e.message, 'err'); }
 }
 
@@ -1142,8 +1269,8 @@ async function deleteSchedule(id, btn) {
     await sb('sts_schedule_items?schedule_id=eq.' + id, 'DELETE');
     await sb('sts_schedules?id=eq.' + id, 'DELETE');
     toast('Deleted', 'info');
-    document.getElementById('btn-load-saved').click();
-    document.getElementById('btn-load-saved').click();
+    // Refresh the saved panel directly (btn-load-saved no longer exists)
+    if (typeof loadMyCellsSavedPanel === 'function') loadMyCellsSavedPanel();
   } catch (e) { toast('Delete failed: ' + e.message, 'err'); btn.disabled = false; }
 }
 
@@ -1204,231 +1331,26 @@ function printHandoff() {
 }
 
 // ── Warranty queue ──
-
-// Campus-aware cell query: always scopes to currentUser.campus so SY cells
-// never pull RX warranty rows (both campuses share overlapping cell numbers).
-// Also filters out orders that are already in the inspection queue (done on
-// warranty's end or already marked done in STS) to prevent re-appearing.
 async function loadWarrantyItemsForCell(targetCellName) {
   try {
-    const campus = currentUser.campus;
     const n = cellBaseNum(targetCellName);
     const variantMatch = targetCellName.match(/Cell\s+\d+([ab])/i);
     const variant = variantMatch ? variantMatch[1].toLowerCase() : null;
     let rows = [];
-
     if (n) {
-      rows = await sb(`sts_warranty_queue?assigned_cell_num=eq.${n}&campus=eq.${campus}&status=in.(assigned,scheduled)&select=*`);
-      if (variant && rows && rows.length) {
-        rows = rows.filter(w => {
-          const ac = String(w.assigned_cell || '').toLowerCase();
-          const rv = ac.match(/\d+([ab])/);
-          if (rv) return rv[1] === variant;
-          return true;
-        });
-      }
+      rows = await sb(`sts_warranty_queue?assigned_cell_num=eq.${n}&status=in.(assigned,scheduled)&select=*`);
+      if (variant && rows && rows.length) rows = rows.filter(w => { const ac = String(w.assigned_cell || '').toLowerCase(); const rv = ac.match(/\d+([ab])/); if (rv) return rv[1] === variant; return true; });
     }
-
-    if (!rows || !rows.length) {
-      rows = await sb(`sts_warranty_queue?assigned_cell=eq.${encodeURIComponent(targetCellName)}&campus=eq.${campus}&status=in.(assigned,scheduled)&select=*`);
-    }
-
-    // Filter out orders already tracked as done/inspected in the inspection queue.
-    // This stops "already done on warranty's end" items from flowing back in.
-    rows = await _filterOutInspectedOrders(rows, campus);
-
-    return _mapWarrantyRows(rows, targetCellName);
-  } catch (e) {
-    console.warn('Warranty queue unavailable:', e);
-    toast('Warranty queue unavailable: ' + e.message, 'err');
-    return [];
-  }
-}
-
-// Returns only warranty rows whose order ref is NOT already in sts_inspection_queue
-// with status pending or inspected on this campus.
-async function _filterOutInspectedOrders(rows, campus) {
-  if (!rows || !rows.length) return rows;
-  try {
-    // Fetch all inspection records for this campus (pending + inspected)
-    const inspected = await sb(
-      `sts_inspection_queue?campus=eq.${campus}&status=in.(pending,inspected)&select=order_number`
-    ).catch(() => []);
-    if (!inspected || !inspected.length) return rows;
-
-    const doneRefs = new Set(
-      inspected.map(r => String(r.order_number || '').toUpperCase()).filter(Boolean)
-    );
-
-    return rows.filter(w => {
-      const ref = String(w.warranty_order || w.id || '').toUpperCase();
-      return !doneRefs.has(ref);
+    if (!rows || !rows.length) rows = await sb(`sts_warranty_queue?assigned_cell=eq.${encodeURIComponent(targetCellName)}&status=in.(assigned,scheduled)&select=*`);
+    return (rows || []).map(w => {
+      const takt = Number(w.takt_minutes || 0), qty = Number(w.quantity || 1), ref = w.warranty_order || w.id, partNumber = w.inventory_id || w.sku || w.line_description || ref || 'WARRANTY';
+      return { sku: partNumber, inventoryId: w.inventory_id || null, description: w.line_description || '', qty, totalQty: qty, taktMins: takt, taktStr: fmtTakt(takt), dueDate: w.due_date || null, mustShip: !!w.must_ship, orderNum: ref, orderNums: [ref].filter(Boolean), orderBreakdown: [{ orderNum: ref, qty, taktMins: takt, dueDate: w.due_date || null }], orderType: w.order_type === 'replacement' ? 'replacement' : 'warranty', sourceCell: w.assigned_cell || targetCellName, sourceSystem: 'warranty', sourceRef: w.id, lockedSource: true, boxes: 'have_all', hardware: 'have_all', lumber: 'have_all', slings: 'have_all', bentParts: 'have_all', showSlings: false, showBentParts: false, merged: false };
     });
-  } catch(e) {
-    // If the inspection queue table doesn't exist yet, don't crash — just return rows unfiltered
-    return rows;
-  }
-}
-
-function _mapWarrantyRows(rows, targetCellName) {
-  return (rows || []).map(w => {
-    const takt = Number(w.takt_minutes || 0);
-    const qty  = Number(w.quantity || 1);
-    const ref  = w.warranty_order || w.id;
-    const partNumber = w.inventory_id || w.sku || 'UNKNOWN-PART';
-    return {
-      sku: partNumber, inventoryId: w.inventory_id || null, description: w.line_description || '',
-      qty, totalQty: qty, taktMins: takt, taktStr: fmtTakt(takt),
-      dueDate: w.due_date || null, mustShip: !!w.must_ship,
-      orderNum: ref, orderNums: [ref].filter(Boolean),
-      orderBreakdown: [{ orderNum: ref, qty, taktMins: takt, dueDate: w.due_date || null }],
-      orderType: w.order_type === 'replacement' ? 'replacement' : 'warranty',
-      sourceCell: w.assigned_cell || targetCellName,
-      sourceSystem: 'warranty', sourceRef: w.id, lockedSource: true,
-      boxes: 'have_all', hardware: 'have_all', lumber: 'have_all',
-      slings: 'have_all', bentParts: 'have_all',
-      showSlings: false, showBentParts: false, merged: false,
-    };
-  });
+  } catch (e) { console.warn('Warranty queue unavailable:', e); toast('Warranty queue unavailable: ' + e.message, 'err'); return []; }
 }
 
 function mergeWarrantyItems(existingItems, warrantyItems) {
   if (!warrantyItems.length) return existingItems;
-  const existingKeys = new Set(existingItems.flatMap(it =>
-    (it.orderNums && it.orderNums.length ? it.orderNums : [it.orderNum])
-      .filter(Boolean).map(o => String(o).toUpperCase())
-  ));
-  return [...existingItems, ...warrantyItems.filter(w => {
-    const key = String(w.orderNum || '').toUpperCase();
-    return key && !existingKeys.has(key);
-  })];
-}
-
-// ── Warranty auto-poll ──
-// Runs every 30s when a schedule is loaded. Detects:
-//   1. New warranty/replacement orders → auto-merges + shows banner
-//   2. Orders that became received_in_warranty or archived → removes from schedule
-
-const WARRANTY_POLL_MS = 30000;
-// Statuses that mean "done / gone from WMS" — remove from schedule automatically
-const WARRANTY_DONE_STATUSES = new Set(['received_in_warranty', 'archived', 'completed', 'cancelled']);
-
-function startWarrantyPoll() {
-  stopWarrantyPoll();
-  if (!cellName) return;
-  // Capture initial snapshot so we don't immediately show a "new items" banner
-  _snapshotCurrentWarranties();
-  warrantyPollTimer = setInterval(_warrantyPollTick, WARRANTY_POLL_MS);
-}
-
-function stopWarrantyPoll() {
-  if (warrantyPollTimer) { clearInterval(warrantyPollTimer); warrantyPollTimer = null; }
-  lastWarrantySnapshot = '';
-}
-
-function _snapshotCurrentWarranties() {
-  // Build a snapshot of the warranty order refs currently on the schedule
-  const warrantyOnSchedule = scheduleItems
-    .filter(it => it.sourceSystem === 'warranty' || it.orderType === 'warranty' || it.orderType === 'replacement')
-    .flatMap(it => it.orderNums || [it.orderNum])
-    .filter(Boolean)
-    .map(o => String(o).toUpperCase())
-    .sort();
-  lastWarrantySnapshot = JSON.stringify(warrantyOnSchedule);
-}
-
-async function _warrantyPollTick() {
-  if (!cellName || !scheduleItems.length) return;
-  try {
-    const campus = currentUser.campus;
-    const n = cellBaseNum(cellName);
-    if (!n) return;
-
-    // Fetch all rows for this cell+campus regardless of status so we can detect gone items too
-    let allRows = await sb(`sts_warranty_queue?assigned_cell_num=eq.${n}&campus=eq.${campus}&select=id,warranty_order,status,order_type,inventory_id,sku`);
-    if (!allRows) allRows = [];
-
-    // Build a map: ref → status
-    const statusMap = {};
-    allRows.forEach(w => {
-      const ref = String(w.warranty_order || w.id).toUpperCase();
-      statusMap[ref] = w.status || '';
-    });
-
-    // ── Step 1: Remove items that are now received/archived ──
-    const before = scheduleItems.length;
-    const removedLabels = [];
-    scheduleItems = scheduleItems.filter(it => {
-      if (it.sourceSystem !== 'warranty' && it.orderType !== 'warranty' && it.orderType !== 'replacement') return true;
-      const ref = String(it.orderNum || '').toUpperCase();
-      if (!ref) return true;
-      const status = statusMap[ref];
-      // If status is a "done" status OR the row no longer exists in the WMS queue
-      if (WARRANTY_DONE_STATUSES.has(status) || (ref in statusMap === false && lastWarrantySnapshot.includes(ref))) {
-        removedLabels.push(it.sku);
-        return false;
-      }
-      return true;
-    });
-    const removedCount = before - scheduleItems.length;
-
-    // ── Step 2: Detect new items (status assigned/scheduled that aren't on schedule yet) ──
-    const activeRows = allRows.filter(w => {
-      const s = w.status || '';
-      return s === 'assigned' || s === 'scheduled';
-    });
-    const newRows = activeRows.filter(w => {
-      const ref = String(w.warranty_order || w.id).toUpperCase();
-      return !scheduleItems.some(it =>
-        (it.orderNums || [it.orderNum]).map(o => String(o || '').toUpperCase()).includes(ref)
-      );
-    });
-
-    if (newRows.length > 0) {
-      // Fetch full records for new rows, then filter out any already in inspection queue
-      const newIds = newRows.map(w => w.id);
-      let fullRows = await sb(`sts_warranty_queue?id=in.(${newIds.join(',')})&select=*`);
-      fullRows = await _filterOutInspectedOrders(fullRows || [], campus);
-      const newItems = _mapWarrantyRows(fullRows, cellName);
-      if (newItems.length) {
-        scheduleItems = mergeWarrantyItems(scheduleItems, newItems);
-        _snapshotCurrentWarranties();
-        render();
-        markUnsaved();
-        _showWarrantyBanner(
-          `${newItems.length} new warranty order${newItems.length !== 1 ? 's' : ''} added to schedule`,
-          'new'
-        );
-        logAction(LOG.ITEM_ADDED, { note: `Auto-pulled ${newItems.length} warranty item(s) for ${cellName}` });
-      }
-    } else if (removedCount > 0) {
-      _snapshotCurrentWarranties();
-      render();
-      markUnsaved();
-      _showWarrantyBanner(
-        `${removedCount} warranty order${removedCount !== 1 ? 's' : ''} removed (received/archived in WMS)`,
-        'removed'
-      );
-    } else {
-      // Nothing changed — just refresh snapshot
-      _snapshotCurrentWarranties();
-    }
-  } catch(e) {
-    console.warn('Warranty poll failed:', e.message);
-  }
-}
-
-function _showWarrantyBanner(msg, type) {
-  // Reuse the live-banner element with a different style based on type
-  const el = document.getElementById('live-banner');
-  if (!el) return;
-  const color = type === 'removed' ? 'var(--yellow)' : 'var(--purple)';
-  const bg    = type === 'removed' ? '#1c1500'        : '#1a0530';
-  el.style.background   = bg;
-  el.style.borderBottom = `2px solid ${color}`;
-  el.innerHTML = `<div class="live-banner-dot" style="background:${color};animation:none;"></div><span style="color:${color};">${msg}</span><button onclick="hideLiveBanner()" style="margin-left:auto;background:none;border:1px solid ${color};color:${color};border-radius:4px;padding:2px 10px;font-size:11px;cursor:pointer;">Dismiss</button>`;
-  el.style.display = 'flex';
-  // Auto-dismiss after 12s for new items (longer so they notice), 6s for removed
-  clearTimeout(bannerTimer);
-  bannerTimer = setTimeout(hideLiveBanner, type === 'new' ? 12000 : 6000);
+  const existingKeys = new Set(existingItems.flatMap(it => (it.orderNums && it.orderNums.length ? it.orderNums : [it.orderNum]).filter(Boolean).map(o => String(o).toUpperCase())));
+  return [...existingItems, ...warrantyItems.filter(w => { const key = String(w.orderNum || '').toUpperCase(); return key && !existingKeys.has(key); })];
 }

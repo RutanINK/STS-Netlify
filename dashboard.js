@@ -22,19 +22,20 @@ async function loadDashboard() {
     allItems.forEach(it => { taktBySchedule[it.schedule_id] = (taktBySchedule[it.schedule_id] || 0) + parseFloat(it.takt_minutes || 0); });
 
     dashData = {};
-    const campusCellNums = (typeof BUILDINGS !== 'undefined' && BUILDINGS)
-      ? Object.values(BUILDINGS).flatMap(b => b.cells || [])
-      : Array.from({ length: 58 }, (_, i) => i + 1);
-    campusCellNums.forEach(n => {
-      const cn = 'Cell ' + String(n).padStart(2, '0'), cns = cn + ' - Secondary', bldg = cellBuilding(n);
-      dashData[cn]  = { cell: cn,  mins: 0, submitted: null, by: null, building: bldg, isSecondary: false };
-      dashData[cns] = { cell: cns, mins: 0, submitted: null, by: null, building: bldg, isSecondary: true  };
+    const campusBuildings = (typeof getBuildingsForCampus === 'function')
+      ? getBuildingsForCampus(currentUser.campus)
+      : (typeof BUILDINGS !== 'undefined' ? BUILDINGS : {});
+    Object.entries(campusBuildings).forEach(([bldgKey, bldgVal]) => {
+      (bldgVal.cellNames || []).forEach(cn => {
+        const isSecondary = /secondary/i.test(cn);
+        dashData[cn] = { cell: cn, mins: 0, submitted: null, by: null, building: bldgKey, isSecondary };
+      });
     });
 
     Object.values(latestByCell).forEach(s => {
       const mins = taktBySchedule[s.id] || 0;
       const isSecondary = /secondary/i.test(s.cell_name);
-      const baseNum = cellBaseNum(s.cell_name), bldg = baseNum ? cellBuilding(baseNum) : 'Other';
+      const bldg = cellBuilding(s.cell_name);
       if (dashData[s.cell_name]) { dashData[s.cell_name].mins = mins; dashData[s.cell_name].submitted = s.created_at; dashData[s.cell_name].by = s.created_by; }
       else dashData[s.cell_name] = { cell: s.cell_name, mins, submitted: s.created_at, by: s.created_by, building: bldg, isSecondary };
     });
@@ -90,7 +91,7 @@ function renderDashboard() {
   const bldgTotals = {};
   Object.entries(BUILDINGS).forEach(([k, v]) => {
     const bCells = cells.filter(c => c.building === k);
-    bldgTotals[k] = { mins: bCells.reduce((s, c) => s + c.mins, 0), active: bCells.filter(c => c.mins > 0).length, total: bCells.length || v.cells.length };
+    bldgTotals[k] = { mins: bCells.reduce((s, c) => s + c.mins, 0), active: bCells.filter(c => c.mins > 0).length, total: bCells.length || (v.cellNames || []).filter(cn => !/secondary/i.test(cn)).length };
   });
   const maxBldg = Math.max(...Object.values(bldgTotals).map(b => b.mins), 1);
   document.getElementById('bldg-heat').innerHTML = Object.entries(bldgTotals).map(([k, v]) => {

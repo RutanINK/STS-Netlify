@@ -22,6 +22,12 @@ function bootApp() {
 
   document.getElementById('tab-dashboard').style.display  = DASH_ROLES.includes(currentUser.role) ? '' : 'none';
   document.getElementById('view-as-select').style.display = currentUser.role === 'admin' ? '' : 'none';
+
+  // Sync campus & role switcher dropdowns to current user
+  const campusSel = document.getElementById('switch-campus');
+  if (campusSel) campusSel.value = currentUser.campus;
+  const roleSel = document.getElementById('switch-role');
+  if (roleSel) roleSel.value = currentUser.role;
   _applyRoleVisibility();
   if (typeof ensureAutoSortButton === 'function') ensureAutoSortButton();
 
@@ -37,6 +43,7 @@ function bootApp() {
 
   // Load My Cells from localStorage
   _loadMyCellsFromStorage();
+  if (typeof renderMyCellsStripCards === 'function') renderMyCellsStripCards();
 
   // Populate edit-card material dropdowns
   _populateEditMatSelects(50);
@@ -96,12 +103,20 @@ function showPage(p) {
 
   if (p === 'dashboard')   loadDashboard();
   if (p === 'board')       { loadBoard(); startLivePoll(); }
+  if (p === 'schedule')    {
+    // Hide the paste panel for roles that don't enter schedules manually
+    const isScheduler = SUP_ROLES.includes(currentUser.role) || currentUser.role === 'admin';
+    const pp = document.getElementById('paste-panel');
+    if (pp && !scheduleItems.length) pp.style.display = isScheduler ? 'block' : 'none';
+    if (typeof renderMyCellsStripCards === 'function') renderMyCellsStripCards();
+    if (typeof loadMyCellsSavedPanel === 'function') loadMyCellsSavedPanel();
+    if (typeof startMatEventPoll === 'function') startMatEventPoll();
+    if (typeof render === 'function') render();
+  }
+  else { if (typeof stopMatEventPoll === 'function') stopMatEventPoll(); }
   if (p === 'shortages') {
-    // Only restore from sessionStorage when NOT in test mode (test mode sets activeShortageTab explicitly)
-    if (!_testModeActive) {
-      const savedTab = sessionStorage.getItem('sts_active_shortage_tab');
-      if (savedTab && typeof SHORTAGE_TABS !== 'undefined' && SHORTAGE_TABS[savedTab]) activeShortageTab = savedTab;
-    }
+    const savedTab = sessionStorage.getItem('sts_active_shortage_tab');
+    if (savedTab && typeof SHORTAGE_TABS !== 'undefined' && SHORTAGE_TABS[savedTab]) activeShortageTab = savedTab;
     renderShortageTab();
   }
   if (p === 'bom')         { _updateBOMStatus(); }
@@ -337,7 +352,6 @@ document.getElementById('btn-parse').addEventListener('click', async () => {
     render();
     markUnsaved();
     if (typeof _updateSchedMachineDownBtn === 'function') _updateSchedMachineDownBtn();
-    if (typeof startWarrantyPoll === 'function') startWarrantyPoll();
 
     toast(`Parsed ${result.items.length} SKU${result.items.length !== 1 ? 's' : ''} — ${parsedCell}${parsedBlockedOrders ? ` (${parsedBlockedOrders} blocked order${parsedBlockedOrders !== 1 ? 's' : ''} must be removed before save)` : ''}`, 'ok');
   } catch (e) {
@@ -357,7 +371,6 @@ document.getElementById('btn-print').addEventListener('click', () => {
 
 document.getElementById('btn-clear').addEventListener('click', () => {
   if (!confirm('Clear current schedule?')) return;
-  if (typeof stopWarrantyPoll === 'function') stopWarrantyPoll();
   scheduleItems = []; cellName = ''; savedScheduleId = null; lastSavedState = null; variantSources = []; orderDoneState = {};
   document.getElementById('paste-panel').style.display   = 'block';
   document.getElementById('meta-saved').style.display    = 'none';
@@ -368,32 +381,82 @@ document.getElementById('btn-clear').addEventListener('click', () => {
 });
 
 document.getElementById('btn-handoff').addEventListener('click', openHandoff);
-document.getElementById('btn-load-warranty').addEventListener('click', loadWarrantiesManual);
 document.getElementById('btn-load-warranty-current').addEventListener('click', loadWarrantiesManual);
 
-document.getElementById('btn-load-saved').addEventListener('click', async () => {
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light-mode');
+  localStorage.setItem('sts_theme', isLight ? 'light' : 'dark');
+  const btn = document.getElementById('btn-theme-toggle');
+  if (btn) btn.textContent = isLight ? '🌙 Dark' : '☀ Light';
+}
+
+// Restore saved theme on load
+(function() {
+  if (localStorage.getItem('sts_theme') === 'light') {
+    document.body.classList.add('light-mode');
+    // Button text set after DOM ready
+    document.addEventListener('DOMContentLoaded', () => {
+      const btn = document.getElementById('btn-theme-toggle');
+      if (btn) btn.textContent = '🌙 Dark';
+    });
+  }
+})();
+
+// ── Mat Events Live Poll — refreshes "✓ Ready" badges on the cell schedule ──
+let matEventPollTimer = null;
+
+function startMatEventPoll() {
+  stopMatEventPoll();
+  matEventPollTimer = setInterval(async () => {
+    // Only poll when a schedule is loaded and schedule page is active
+    if (!savedScheduleId && !cellName) return;
+    const schedPage = document.getElementById('page-schedule');
+    if (!schedPage || !schedPage.classList.contains('active')) return;
+    const schedList = document.getElementById('schedule-list');
+    if (!schedList || schedList.style.display === 'none') return;
+    try {
+      await loadMatEvents();
+      render();
+    } catch(e) { /* silent */ }
+  }, 15000); // every 15 seconds
+}
+
+function stopMatEventPoll() {
+  if (matEventPollTimer) { clearInterval(matEventPollTimer); matEventPollTimer = null; }
+}
+
+function closeSavedPanel() {
   const p = document.getElementById('saved-panel');
-  if (p.style.display === 'block') { p.style.display = 'none'; return; }
-  p.style.display = 'block';
+  if (p) p.style.display = 'none';
+  // Restore paste area if no schedule is currently active
+  if (!scheduleItems.length) {
+    const pp = document.getElementById('paste-panel');
+    if (pp) pp.style.display = 'block';
+  }
+}
+
+// Auto-show saved schedules for My Cells when the schedule page loads (no button needed)
+async function loadMyCellsSavedPanel() {
+  const p = document.getElementById('saved-panel');
   const list = document.getElementById('saved-list');
+  if (!p || !list) return;
+  _loadMyCellsFromStorage();
+  if (!myCellsList || !myCellsList.length) {
+    p.style.display = 'none';
+    return;
+  }
+  p.style.display = 'block';
   list.innerHTML = '<span style="color:var(--text-muted);font-size:12px;">Loading…</span>';
   try {
-    const isSup = SUP_ROLES.includes(currentUser.role);
-    let rows;
-    if (isSup) {
-      rows = await sb(`sts_schedules?campus=eq.${currentUser.campus}&order=created_at.desc&limit=60&select=id,cell_name,created_by,created_at`);
-    } else if (myCellsList && myCellsList.length) {
-      const perCell = await Promise.all(
-        myCellsList.map(c => sb(`sts_schedules?campus=eq.${currentUser.campus}&cell_name=eq.${encodeURIComponent(c)}&order=created_at.desc&limit=10&select=id,cell_name,created_by,created_at`).catch(() => []))
-      );
-      rows = perCell.flat().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    } else {
-      rows = await sb(`sts_schedules?campus=eq.${currentUser.campus}&employee_id=eq.${currentUser.id}&order=created_at.desc&limit=20&select=id,cell_name,created_by,created_at`);
-    }
-    if (!rows || !rows.length) {
-      list.innerHTML = `<span style="color:var(--text-dim);font-size:12px;">${!isSup && myCellsList?.length ? `No saved schedules for ${myCellsList.join(', ')} yet.` : 'No saved schedules yet.'}</span>`;
+    const perCell = await Promise.all(
+      myCellsList.map(c => sb(`sts_schedules?campus=eq.${currentUser.campus}&cell_name=eq.${encodeURIComponent(c)}&order=created_at.desc&limit=5&select=id,cell_name,created_by,created_at`).catch(() => []))
+    );
+    const rows = perCell.flat().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    if (!rows.length) {
+      list.innerHTML = `<span style="color:var(--text-dim);font-size:12px;">No saved schedules yet for ${myCellsList.join(', ')}.</span>`;
       return;
     }
+    const isSup = SUP_ROLES.includes(currentUser.role);
     list.innerHTML = rows.map(r => `<div class="saved-row">
       <div class="saved-row-left">
         <span class="saved-cell">${r.cell_name}</span>
@@ -408,7 +471,7 @@ document.getElementById('btn-load-saved').addEventListener('click', async () => 
       </div>
     </div>`).join('');
   } catch (e) { list.innerHTML = '<span style="color:var(--red);font-size:12px;">' + e.message + '</span>'; }
-});
+}
 
 function openAddVariant() {
   document.getElementById('paste-panel').style.display = 'block';
@@ -439,14 +502,11 @@ function combineVariants() {
 }
 
 function updateVariantButtons() {
+  // Schedules are locked after parse; variant/combine editing controls remain hidden.
   const addBtn  = document.getElementById('btn-add-variant');
   const combBtn = document.getElementById('btn-combine-variants');
-  const isSup   = SUP_ROLES.includes(currentUser.role);
-  // "Add Variant" shows for supervisors/managers/admins once a schedule is loaded,
-  // so they can paste a second line's orders to build a combined schedule.
-  if (addBtn)  addBtn.style.display  = (scheduleItems.length > 0 && isSup) ? '' : 'none';
-  // "Combine Variants" shows only when 2+ variant pastes have been done (pre-combine)
-  if (combBtn) combBtn.style.display = (variantSources.length >= 2 && isSup) ? '' : 'none';
+  if (addBtn)  addBtn.style.display  = 'none';
+  if (combBtn) combBtn.style.display = 'none';
 }
 
 // ── Role & campus tab visibility ──
@@ -472,156 +532,72 @@ function _applyRoleVisibility() {
   ['stab-bent_rx','stab-lumber_rx'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = campus === 'RX' ? '' : 'none'; });
   const vas = document.getElementById('view-as-select');
   if (vas) vas.style.display = role === 'admin' ? '' : 'none';
-  // Test mode button — only shown to real admins (not during a test session itself)
-  const tmBtn = document.getElementById('btn-test-mode');
-  if (tmBtn) tmBtn.style.display = (currentUser._realRole === 'admin' || (!currentUser._realRole && currentUser.role === 'admin')) ? '' : 'none';
 }
 
-// ── Test Mode: impersonate any role + campus without logging out ──
-let _testModeActive = false;
 
-function openTestModeModal() {
-  // Only real admins can open this
-  const realRole = currentUser._realRole || currentUser.role;
-  if (realRole !== 'admin') return;
-
-  let modal = document.getElementById('modal-test-mode');
-  if (!modal) {
-    const allRoles = [
-      { value: 'supervisor',       label: 'Supervisor' },
-      { value: 'manager',          label: 'Manager' },
-      { value: 'admin',            label: 'Admin' },
-      { value: 'area_leader',      label: 'Area Leader' },
-      { value: 'box_handler',      label: 'Box Handler' },
-      { value: 'lumber_handler',   label: 'Lumber Handler' },
-      { value: 'hardware_handler', label: 'Hardware Handler' },
-      { value: 'bending_handler',  label: 'Bending Handler' },
-      { value: 'slings_handler',   label: 'Slings Handler' },
-    ];
-    const roleOpts = allRoles.map(r => `<option value="${r.value}">${r.label}</option>`).join('');
-    document.body.insertAdjacentHTML('beforeend', `
-      <div class="modal-bd" id="modal-test-mode">
-        <div class="modal" style="max-width:400px;">
-          <div class="modal-title">🧪 Test Mode</div>
-          <div class="modal-sub">Impersonate a role and campus to verify what each user sees. No data is written.</div>
-          <div class="field-group">
-            <label class="field-label">Role to test</label>
-            <select class="select" id="tm-role">${roleOpts}</select>
-          </div>
-          <div class="field-group">
-            <label class="field-label">Campus to test</label>
-            <select class="select" id="tm-campus">
-              <option value="SY">Syracuse (SY)</option>
-              <option value="RX">Roxboro (RX)</option>
-            </select>
-          </div>
-          <div class="modal-actions">
-            <button class="btn btn-ghost" onclick="closeModal('modal-test-mode')">Cancel</button>
-            <button class="btn btn-primary" onclick="applyTestMode()">Enter Test Mode</button>
-          </div>
-        </div>
-      </div>`);
-  }
-  // Pre-fill with current values
-  const roleEl = document.getElementById('tm-role');
-  const campusEl = document.getElementById('tm-campus');
-  if (roleEl) roleEl.value = currentUser.role;
-  if (campusEl) campusEl.value = currentUser.campus;
-  document.getElementById('modal-test-mode').classList.add('open');
-}
-
-function applyTestMode() {
-  const role      = document.getElementById('tm-role').value;
-  const campus    = document.getElementById('tm-campus').value;
-  const roleLabel = role.replace(/_/g, ' ');   // ← declared here so all code below can use it
-  closeModal('modal-test-mode');
-
-  // Save real identity on first entry
-  if (!currentUser._realRole) {
-    currentUser._realRole   = currentUser.role;
-    currentUser._realCampus = currentUser.campus;
-    currentUser._realName   = currentUser.name;
-  }
-
-  currentUser.role   = role;
+// ── Campus & Role switcher (admin convenience while real auth is pending) ──
+function switchCampus(campus) {
+  if (!campus || campus === currentUser.campus) return;
   currentUser.campus = campus;
-  _testModeActive = true;
-  activeViewAs = '';
+  sessionStorage.setItem('sts_user', JSON.stringify(currentUser));
 
-  // Reset shortage tab to the correct campus default so RX tabs don't show SY data
-  if (campus === 'RX') {
-    activeShortageTab = 'bent_rx';
-  } else {
-    activeShortageTab = 'bent';
-  }
-
-  // Update header display
-  document.getElementById('hdr-role').textContent = ('🧪 ' + roleLabel);
+  // Update campus pill
   const pill = document.getElementById('campus-pill');
-  pill.textContent  = campus;
-  pill.className    = 'campus-pill campus-' + campus;
+  if (pill) { pill.textContent = campus; pill.className = 'campus-pill campus-' + campus; }
 
-  // Show test banner
-  _ensureTestModeBanner();
-  const banner = document.getElementById('test-mode-banner');
-  if (banner) {
-    banner.classList.add('active');
-    banner.innerHTML = `<span class="test-mode-label">🧪 TEST MODE</span><span class="test-mode-chip">${roleLabel}</span><span class="test-mode-chip">${campus}</span><button class="test-mode-exit" onclick="exitTestMode()">✕ Exit Test Mode</button>`;
-  }
+  // Update BUILDINGS global so cellBuilding() works correctly
+  BUILDINGS = getBuildingsForCampus(campus);
 
-  // Re-apply all visibility and reload shortages for new campus
+  // Re-apply role/campus visibility (shortage sub-tabs etc.)
   _applyRoleVisibility();
-  loadShortages(true);
 
-  // If the test role is a material handler, show that view; otherwise show normal schedule
-  if (MAT_ROLES.includes(role)) {
-    showPage('schedule');
-    showMatHandlerView(role);
-  } else {
-    showPage('schedule');
-    render();
+  // Reload board filter + data
+  if (typeof populateBoardBldgFilter === 'function') populateBoardBldgFilter();
+  if (typeof boardData !== 'undefined') { boardData = null; }
+
+  // Re-render whichever page is currently active
+  const activePage = document.querySelector('.page.active');
+  if (activePage) {
+    const pid = activePage.id.replace('page-', '');
+    showPage(pid);
   }
 
-  toast(`Testing as ${roleLabel} on ${campus}`, 'info');
+  toast('Switched to campus ' + campus, 'ok');
 }
 
-function exitTestMode() {
-  if (!currentUser._realRole) return;
-  const wasRxTest = currentUser.campus === 'RX' && currentUser._realCampus !== 'RX';
-  currentUser.role   = currentUser._realRole;
-  currentUser.campus = currentUser._realCampus;
-  delete currentUser._realRole;
-  delete currentUser._realCampus;
-  _testModeActive = false;
-  activeViewAs = '';
+function switchRole(role) {
+  if (!role || role === currentUser.role) return;
+  currentUser.role = role;
+  sessionStorage.setItem('sts_user', JSON.stringify(currentUser));
 
-  // Reset shortage tab back to real campus default
-  activeShortageTab = currentUser.campus === 'RX' ? 'bent_rx' : 'bent';
+  // Update displayed role
+  document.getElementById('hdr-role').textContent = role.replace(/_/g, ' ');
 
-  document.getElementById('hdr-role').textContent = currentUser.role.replace(/_/g, ' ');
-  const pill = document.getElementById('campus-pill');
-  pill.textContent = currentUser.campus;
-  pill.className   = 'campus-pill campus-' + currentUser.campus;
+  // Update avatar initials if name changed (it hasn't, but keep consistent)
+  const initials = currentUser.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  document.getElementById('hdr-avatar').textContent = initials;
 
-  const banner = document.getElementById('test-mode-banner');
-  if (banner) banner.classList.remove('active');
+  document.getElementById('tab-dashboard').style.display = DASH_ROLES.includes(role) ? '' : 'none';
+  document.getElementById('view-as-select').style.display = role === 'admin' ? '' : 'none';
 
   _applyRoleVisibility();
-  loadShortages(true);
-  render();
-  toast('Exited test mode — back to admin view', 'ok');
-}
 
-function _ensureTestModeBanner() {
-  if (document.getElementById('test-mode-banner')) return;
-  const liveBanner = document.getElementById('live-banner');
-  if (liveBanner) {
-    liveBanner.insertAdjacentHTML('afterend', `<div id="test-mode-banner"></div>`);
+  // Re-render whichever page is currently active
+  const activePage = document.querySelector('.page.active');
+  if (activePage) {
+    const pid = activePage.id.replace('page-', '');
+    const needsSup = ['board','shortages','blacklist','warrantymgr'].includes(pid);
+    const needsMgr = ['dashboard'].includes(pid);
+    const isSup = SUP_ROLES.includes(role);
+    const isMgr = ['manager','admin'].includes(role);
+    if ((needsSup && !isSup) || (needsMgr && !isMgr)) showPage('schedule');
+    else showPage(pid);
   }
+
+  toast('Switched to role: ' + role.replace(/_/g, ' '), 'ok');
 }
 
 
-// ── Supervisor Blacklist Manager ──
 async function loadBlacklistManager() {
   const list = document.getElementById('blacklist-list');
   if (!list) return;
@@ -728,18 +704,31 @@ function _saveMyCellsToStorage() {
 
 function _allCampusCells() {
   const cells = [];
-  Object.values(BUILDINGS).forEach(b => b.cells.forEach(n => cells.push('Cell ' + String(n).padStart(2,'0'))));
+  Object.values(BUILDINGS).forEach(b => {
+    // Only include primary (non-secondary) cell names for the picker
+    (b.cellNames || []).filter(cn => !/secondary/i.test(cn)).forEach(cn => cells.push(cn));
+  });
   return cells;
 }
 
 function openManageCells() {
-  const all  = _allCampusCells();
+  const campusBuildings = getBuildingsForCampus(currentUser.campus);
   const grid = document.getElementById('manage-cells-grid');
-  grid.innerHTML = all.map(c => {
-    const sel = myCellsList.includes(c) ? 'selected' : '';
-    return `<button class="cell-pick-btn ${sel}" onclick="this.classList.toggle('selected')" data-cell="${c}">${c}</button>`;
-  }).join('');
+  let html = '';
+  Object.entries(campusBuildings).forEach(([bldg, bldgVal]) => {
+    const primaries = (bldgVal.cellNames || []).filter(cn => !/secondary/i.test(cn));
+    html += `<div class="cell-pick-section-hdr">${bldg}</div>`;
+    primaries.forEach(c => {
+      const sel = myCellsList.includes(c) ? 'selected' : '';
+      html += `<button class="cell-pick-btn ${sel}" onclick="this.classList.toggle('selected')" data-cell="${c}">${c}</button>`;
+    });
+  });
+  grid.innerHTML = html;
   document.getElementById('modal-manage-cells').classList.add('open');
+}
+
+function clearAllMyCellsGrid() {
+  document.querySelectorAll('#manage-cells-grid .cell-pick-btn.selected').forEach(b => b.classList.remove('selected'));
 }
 
 function saveMyCells() {
@@ -748,6 +737,7 @@ function saveMyCells() {
   _saveMyCellsToStorage();
   closeModal('modal-manage-cells');
   renderMyCellsCards();
+  if (typeof renderMyCellsStripCards === 'function') renderMyCellsStripCards();
   toast('My Cells updated', 'ok');
 }
 
@@ -841,6 +831,23 @@ function openClearMachineDownFromMyCells() { const cn = window._activeMyCellName
 async function clearMachineDown() {
   const cn = activeOverlayCell || cellName || window._activeMyCellName;
   if (!cn) { toast('No cell selected', 'info'); return; }
+
+  const btn = document.getElementById('btn-mdown-clear-send');
+  const resolution = (document.getElementById('mdown-clear-reason')?.value || '').trim();
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  // Send webhook notification that machine is cleared
+  const payload = {
+    text: `✅ MACHINE CLEAR — ${cn} | Cleared by: ${currentUser.name} | Campus: ${currentUser.campus} | Resolution: ${resolution || 'N/A'} | Time: ${new Date().toLocaleString()}`
+  };
+  try {
+    if (canSendChatAlert()) {
+      await sendChatAlert(payload);
+    }
+  } catch (e) {
+    toast('Webhook error: ' + e.message, 'err');
+  }
+
   machineDownCells.delete(cn);
   closeModal('modal-mdown-clear');
   const overlay = document.getElementById('overlay-cell');
@@ -849,8 +856,141 @@ async function clearMachineDown() {
   if (typeof _updateSchedMachineDownBtn === 'function') _updateSchedMachineDownBtn();
   const clearBtn = document.getElementById('btn-mycell-cleardown');
   if (clearBtn) clearBtn.style.display = 'none';
+  if (btn) { btn.disabled = false; btn.textContent = '✅ Clear Machine Down'; }
   logAction(LOG.MACHINE_DOWN, { cell_name: cn, note: 'Machine clear' });
-  toast('Machine clear for ' + cn, 'ok');
+  toast('✅ Machine clear sent for ' + cn, 'ok');
+}
+
+// ── Feedback ──
+function openFeedbackModal() {
+  const txt = document.getElementById('feedback-text');
+  const rep = document.getElementById('feedback-reporter');
+  const btn = document.getElementById('btn-feedback-send');
+  if (txt) txt.value = '';
+  if (rep) rep.value = currentUser.name;
+  if (btn) btn.disabled = true;
+  // Enable send button when text is entered
+  if (txt) txt.oninput = () => { if (btn) btn.disabled = !txt.value.trim(); };
+  document.getElementById('modal-feedback').classList.add('open');
+}
+
+async function sendFeedback() {
+  const txt = (document.getElementById('feedback-text')?.value || '').trim();
+  if (!txt) { toast('Please enter a message', 'info'); return; }
+  const btn = document.getElementById('btn-feedback-send');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  const payload = {
+    text: `💬 FEEDBACK — From: ${currentUser.name} | Role: ${currentUser.role.replace(/_/g,' ')} | Campus: ${currentUser.campus} | Time: ${new Date().toLocaleString()}\n\n${txt}`
+  };
+  try {
+    if (!canSendChatAlert()) {
+      console.log('Feedback payload (webhook not configured):', payload);
+      toast('⚠ Feedback logged (add webhook URL in config.js to send)', 'info');
+    } else {
+      await sendChatAlert(payload);
+      toast('💬 Feedback sent — thanks!', 'ok');
+    }
+    closeModal('modal-feedback');
+  } catch (e) {
+    toast('Webhook error: ' + e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send Feedback'; }
+  }
+}
+
+// ── Need Help ──
+function openNeedHelpModal() {
+  const reason = document.getElementById('help-reason');
+  const note   = document.getElementById('help-note');
+  const noteGrp= document.getElementById('help-note-group');
+  const rep    = document.getElementById('help-reporter');
+  const btn    = document.getElementById('btn-help-send');
+  if (reason)  reason.value = '';
+  if (note)    note.value   = '';
+  if (noteGrp) noteGrp.style.display = 'none';
+  if (rep)     rep.value    = currentUser.name;
+  if (btn)     btn.disabled = true;
+  // Clear any previously selected urgency button
+  document.querySelectorAll('.urgency-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('modal-need-help').classList.add('open');
+}
+
+function onHelpReasonChange(val) {
+  const noteGrp = document.getElementById('help-note-group');
+  if (noteGrp) noteGrp.style.display = val === 'Other app issue' ? '' : 'none';
+  _updateHelpSendBtn();
+}
+
+function selectUrgency(btn) {
+  document.querySelectorAll('.urgency-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  _updateHelpSendBtn();
+}
+
+function _updateHelpSendBtn() {
+  const reason  = document.getElementById('help-reason')?.value;
+  const urgency = document.querySelector('.urgency-btn.selected');
+  const btn     = document.getElementById('btn-help-send');
+  if (btn) btn.disabled = !(reason && urgency);
+}
+
+async function sendNeedHelp() {
+  const reason  = (document.getElementById('help-reason')?.value || '').trim();
+  const note    = (document.getElementById('help-note')?.value   || '').trim();
+  const urgency = document.querySelector('.urgency-btn.selected')?.dataset.level || 'Unknown';
+  const btn     = document.getElementById('btn-help-send');
+  if (!reason || !urgency) { toast('Please fill in all required fields', 'info'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+  const urgencyEmoji = urgency === 'High' ? '🔴' : urgency === 'Medium' ? '🟡' : '🟢';
+  const payload = {
+    text: `🙋 APP SUPPORT REQUEST — ${currentUser.name} | Campus: ${currentUser.campus} | Urgency: ${urgencyEmoji} ${urgency} | Issue: ${reason}${note ? ' | Details: ' + note : ''} | Time: ${new Date().toLocaleString()}`
+  };
+
+  try {
+    if (!canSendChatAlert()) {
+      console.log('Help request payload (webhook not configured):', payload);
+      toast('⚠ Help request logged (add webhook URL in config.js to send)', 'info');
+    } else {
+      await sendChatAlert(payload);
+      toast('🙋 Help request sent!', 'ok');
+    }
+    closeModal('modal-need-help');
+  } catch (e) {
+    toast('Webhook error: ' + e.message, 'err');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🙋 Send Help Request'; }
+  }
+}
+function renderMyCellsStripCards() {
+  const wrap = document.getElementById('mycells-strip-cards');
+  if (!wrap) return;
+  _loadMyCellsFromStorage();
+  if (!myCellsList.length) {
+    wrap.innerHTML = '<span style="color:var(--text-dim);font-size:12px;">No cells selected — click ⚙ Manage to add yours.</span>';
+    return;
+  }
+  wrap.innerHTML = myCellsList.map(c => {
+    const isDown = typeof machineDownCells !== 'undefined' && machineDownCells.has(c);
+    const cls = isDown ? 'mycell-strip-btn down' : 'mycell-strip-btn';
+    return `<button class="${cls}" onclick="loadMyCellScheduleFromStrip('${c}',this)">${c}${isDown ? ' 🔴' : ''}</button>`;
+  }).join('');
+}
+
+async function loadMyCellScheduleFromStrip(cellNameVal, btn) {
+  if (!cellNameVal) return;
+  window._activeMyCellName = cellNameVal;
+  document.querySelectorAll('.mycell-strip-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  try {
+    const scheds = await sb(`sts_schedules?cell_name=eq.${encodeURIComponent(cellNameVal)}&campus=eq.${currentUser.campus}&order=created_at.desc&limit=1&select=id`);
+    if (!scheds || !scheds.length) { toast('No schedule found for ' + cellNameVal, 'info'); return; }
+    await loadSchedule(scheds[0].id);
+    if (typeof _updateSchedMachineDownBtn === 'function') _updateSchedMachineDownBtn();
+    toast('Loaded ' + cellNameVal, 'ok');
+  } catch(e) { toast('Failed: ' + e.message, 'err'); }
 }
 
 // ── Warranty Manager (supervisor) ──
@@ -908,21 +1048,7 @@ async function loadWarrantyMgr() {
 function _renderInspections(rows) {
   const el = document.getElementById('wm-inspections');
   if (!rows.length) { el.innerHTML = '<div style="color:var(--text-dim);padding:16px;">No pending inspections.</div>'; return; }
-
-  // Dedupe by order_number — keep only the most recent row per order.
-  // Duplicates can arise from: double-clicks before the upsert check fires,
-  // multiple users on the same cell, or legacy rows from before the upsert fix.
-  const seen = new Map(); // order_number → row (most recent wins)
-  rows.forEach(r => {
-    const key = r.order_number ? String(r.order_number).toUpperCase() : r.id;
-    const existing = seen.get(key);
-    if (!existing || new Date(r.created_at) > new Date(existing.created_at)) {
-      seen.set(key, r);
-    }
-  });
-  const deduped = Array.from(seen.values());
-
-  el.innerHTML = deduped.map(r => `
+  el.innerHTML = rows.map(r => `
     <div class="wm-row is-inspect">
       <div style="flex:1;min-width:0;">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -942,22 +1068,7 @@ function _renderInspections(rows) {
 
 async function clearInspection(id, btn) {
   btn.disabled = true; btn.textContent = 'Saving…';
-  // Mark this specific row inspected, and also clean up any duplicate pending rows
-  // for the same order_number so stale duplicates don't resurface.
-  try {
-    const row = await sb(`sts_inspection_queue?id=eq.${id}&select=order_number,campus`).catch(() => []);
-    await sb(`sts_inspection_queue?id=eq.${id}`, 'PATCH', {
-      status: 'inspected', inspected_by: currentUser.name, inspected_at: new Date().toISOString()
-    }).catch(() => {});
-    // Also clear any other pending rows for the same order on this campus (duplicates)
-    if (row && row[0]?.order_number) {
-      await sb(
-        `sts_inspection_queue?order_number=eq.${encodeURIComponent(row[0].order_number)}&campus=eq.${row[0].campus}&status=eq.pending&id=neq.${id}`,
-        'PATCH',
-        { status: 'inspected', inspected_by: currentUser.name, inspected_at: new Date().toISOString() }
-      ).catch(() => {});
-    }
-  } catch(e) { /* silent */ }
+  await sb(`sts_inspection_queue?id=eq.${id}`, 'PATCH', { status: 'inspected', inspected_by: currentUser.name, inspected_at: new Date().toISOString() }).catch(() => {});
   toast('Marked inspected', 'ok');
   loadWarrantyMgr();
 }
@@ -994,13 +1105,19 @@ function _populateEditMatSelects(qty) {
 }
 
 // ── Init ──
+// PIN auth removed. Shows the admin login screen on load.
+// When a proper authenticator is ready, replace auth.js and update this block.
 (async () => {
-  // ⬇ Temporary bypass — remove this block and uncomment initLogin() for real auth
-  currentUser = { id: '00000000-0000-4000-8000-000000000000', name: 'Scheduler', role: 'admin', campus: 'SY', isTemporaryUser: true };
-  bootApp();
-
-  // For real login, comment the two lines above and uncomment these:
-  // document.getElementById('page-login').style.display = 'flex';
-  // document.getElementById('page-login').classList.add('active');
-  // initLogin();
+  const saved = sessionStorage.getItem('sts_user');
+  if (saved) {
+    // Resume session if one is already active (e.g. page refresh)
+    try {
+      currentUser = JSON.parse(saved);
+      bootApp();
+      return;
+    } catch {}
+  }
+  document.getElementById('page-login').style.display = 'flex';
+  document.getElementById('page-login').classList.add('active');
+  showLoginStep('ls-name');
 })();

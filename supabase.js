@@ -6,7 +6,8 @@ async function sb(path, method = 'GET', body = null, extra = {}) {
   const h = {
     'apikey': SB_KEY,
     'Authorization': 'Bearer ' + SB_KEY,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
   };
   if (method === 'POST') h['Prefer'] = 'return=representation';
   if (extra.prefer) h['Prefer'] = extra.prefer;
@@ -14,8 +15,12 @@ async function sb(path, method = 'GET', body = null, extra = {}) {
   const opts = { method, headers: h };
   if (body) opts.body = JSON.stringify(body);
 
+  // Keep the apikey header and query parameter. Some Supabase/PostgREST deployments,
+  // proxies, and browser paths can reject requests when the key is only present as a header.
+  // The anon key is public by design; authorization must still be enforced with RLS.
   const sep = String(path).includes('?') ? '&' : '?';
   const url = SB_URL + '/rest/v1/' + path + sep + 'apikey=' + encodeURIComponent(SB_KEY);
+  opts.credentials = 'omit';
   const r = await fetch(url, opts);
   if (!r.ok) {
   const text = await r.text();

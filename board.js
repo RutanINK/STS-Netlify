@@ -2,8 +2,25 @@
 // BOARD — live production board + machine down
 // ══════════════════════════════════════
 
+function populateBoardBldgFilter() {
+  const sel = document.getElementById('board-bldg');
+  if (!sel) return;
+  const campusBuildings = getBuildingsForCampus(currentUser.campus);
+  const current = sel.value;
+  sel.innerHTML = '<option value="all">All Buildings</option>' +
+    Object.entries(campusBuildings).map(([key, val]) => {
+      // Show first and last *primary* (non-secondary) cell names as the range label
+      const primaries = (val.cellNames || []).filter(cn => !/secondary/i.test(cn));
+      const label = primaries.length ? `${primaries[0]} – ${primaries[primaries.length - 1]}` : key;
+      return `<option value="${key}">${key} (${label})</option>`;
+    }).join('');
+  if ([...sel.options].some(o => o.value === current)) sel.value = current;
+  else sel.value = 'all';
+}
+
 async function loadBoard() {
   document.getElementById('board-grid').innerHTML = '<div style="color:var(--text-dim);padding:40px;text-align:center;">Loading…</div>';
+  populateBoardBldgFilter();
   try {
     const scheds = await sb(`sts_schedules?campus=eq.${currentUser.campus}&order=created_at.desc&select=id,cell_name,created_by,created_at`);
     const latestByCell = {};
@@ -22,22 +39,22 @@ async function loadBoard() {
     const itemsBySched = {};
     allItems.forEach(it => { if (!itemsBySched[it.schedule_id]) itemsBySched[it.schedule_id] = []; itemsBySched[it.schedule_id].push(it); });
 
-    // Pre-fill all standard cells so empty ones still show on the board
+    // Pre-fill all known cells for this campus so empty ones still show on the board
     boardData = {};
-    for (let n = 1; n <= 58; n++) {
-      const cn = 'Cell ' + String(n).padStart(2, '0');
-      const cns = cn + ' - Secondary';
-      const bldg = cellBuilding(n);
-      boardData[cn]  = { cell: cn,  mins: 0, submitted: null, by: null, building: bldg, isSecondary: false, items: [] };
-      boardData[cns] = { cell: cns, mins: 0, submitted: null, by: null, building: bldg, isSecondary: true,  items: [] };
-    }
+    const campusBuildings = getBuildingsForCampus(currentUser.campus);
+    Object.entries(campusBuildings).forEach(([bldgKey, bldgVal]) => {
+      (bldgVal.cellNames || []).forEach(cn => {
+        const isSecondary = /secondary/i.test(cn);
+        boardData[cn] = { cell: cn, mins: 0, submitted: null, by: null, building: bldgKey, isSecondary, items: [] };
+      });
+    });
 
+    // Overlay actual schedule data — also catches any DB cells not in our pre-fill list
     Object.values(latestByCell).forEach(s => {
       const items = (itemsBySched[s.id] || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       const mins = items.reduce((sum, it) => sum + parseFloat(it.takt_minutes || 0), 0);
       const isSecondary = /secondary/i.test(s.cell_name);
-      const baseNum = cellBaseNum(s.cell_name);
-      const bldg = baseNum ? cellBuilding(baseNum) : 'Other';
+      const bldg = cellBuilding(s.cell_name);
       if (boardData[s.cell_name]) {
         Object.assign(boardData[s.cell_name], { mins, submitted: s.created_at, by: s.created_by, items });
       } else {
@@ -59,11 +76,23 @@ function renderBoard() {
   if (bldgF !== 'all') cells = cells.filter(c => c.building === bldgF);
   if (secF === 'primary')   cells = cells.filter(c => !c.isSecondary);
   if (secF === 'secondary') cells = cells.filter(c =>  c.isSecondary);
+  // Sort by campus building order, then by exact position within that building's cellNames list
+  const campusBuildings = getBuildingsForCampus(currentUser.campus);
+  const bldgOrder = Object.keys(campusBuildings);
+
+  // Build a lookup: cell name → { bldgIdx, cellIdx }
+  const cellOrderMap = {};
+  bldgOrder.forEach((bldg, bldgIdx) => {
+    (campusBuildings[bldg].cellNames || []).forEach((cn, cellIdx) => {
+      cellOrderMap[cn] = { bldgIdx, cellIdx };
+    });
+  });
+
   cells.sort((a, b) => {
-    // Sort by building first, then by cell name
-    if (a.building < b.building) return -1;
-    if (a.building > b.building) return 1;
-    return a.cell.localeCompare(b.cell);
+    const ao = cellOrderMap[a.cell] || { bldgIdx: 999, cellIdx: 999 };
+    const bo = cellOrderMap[b.cell] || { bldgIdx: 999, cellIdx: 999 };
+    if (ao.bldgIdx !== bo.bldgIdx) return ao.bldgIdx - bo.bldgIdx;
+    return ao.cellIdx - bo.cellIdx;
   });
 
   const grid = document.getElementById('board-grid');
@@ -182,7 +211,7 @@ async function sendMachineDown() {
   };
 
   try {
-    if (MACHINE_DOWN_WEBHOOK.includes('YOUR_WEBHOOK_URL_HERE')) {
+    if (!canSendChatAlert()) {
       // Placeholder mode — logs to console, marks the cell on the board
       console.log('Machine Down payload (webhook not configured yet):', payload);
       machineDownCells.add(cn);
@@ -192,7 +221,7 @@ async function sendMachineDown() {
       renderBoard();
       toast(`⚠ Alert logged for ${cn} (add webhook URL in config.js to send)`, 'info');
     } else {
-      await fetch(MACHINE_DOWN_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      await sendChatAlert(payload);
       machineDownCells.add(cn);
       if (typeof _updateSchedMachineDownBtn === 'function') _updateSchedMachineDownBtn();
       closeModal('modal-mdown');
