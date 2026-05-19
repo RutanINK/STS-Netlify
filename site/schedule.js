@@ -150,18 +150,43 @@ function shortageLabelForBadge(impact) {
 }
 
 
-// Ensure Auto Sort exists even if an older HTML shell is cached/deployed.
+// Ensure Auto Sort and Compact View buttons exist even if an older HTML shell is cached/deployed.
 function ensureAutoSortButton() {
   const actions = document.querySelector('#sched-meta .sched-actions');
-  if (!actions || document.getElementById('btn-auto-sort')) return;
-  const btn = document.createElement('button');
-  btn.className = 'btn btn-primary btn-sm';
-  btn.id = 'btn-auto-sort';
-  btn.type = 'button';
-  btn.textContent = 'Auto Sort';
-  btn.onclick = openAutoSortModal;
-  const loadWarranty = document.getElementById('btn-load-warranty-current');
-  actions.insertBefore(btn, loadWarranty || actions.firstChild);
+  if (!actions) return;
+  if (!document.getElementById('btn-auto-sort')) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary btn-sm';
+    btn.id = 'btn-auto-sort';
+    btn.type = 'button';
+    btn.textContent = 'Auto Sort';
+    btn.onclick = openAutoSortModal;
+    actions.insertBefore(btn, actions.firstChild);
+  }
+  if (!document.getElementById('btn-compact-view')) {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-ghost btn-sm';
+    btn.id = 'btn-compact-view';
+    btn.type = 'button';
+    btn.title = 'Toggle compact row view to reduce dead space';
+    btn.onclick = toggleCompactView;
+    const isCompact = localStorage.getItem('sts_compact_view') === '1';
+    btn.textContent = isCompact ? '☰ Expanded' : '☰ Compact';
+    const clearBtn = document.getElementById('btn-clear');
+    if (clearBtn) actions.insertBefore(btn, clearBtn);
+    else actions.appendChild(btn);
+    if (isCompact) document.getElementById('schedule-list')?.classList.add('compact-mode');
+  }
+}
+
+// ── Compact view toggle ──
+function toggleCompactView() {
+  const list = document.getElementById('schedule-list');
+  const btn  = document.getElementById('btn-compact-view');
+  if (!list) return;
+  const isNowCompact = list.classList.toggle('compact-mode');
+  localStorage.setItem('sts_compact_view', isNowCompact ? '1' : '0');
+  if (btn) btn.textContent = isNowCompact ? '☰ Expanded' : '☰ Compact';
 }
 
 // ── Main render ──
@@ -452,81 +477,122 @@ function toggleOrdersPanel(btn) {
 }
 
 
-// ── Auto sort — group like SKUs together, ignoring color suffixes ──
+// ── Auto sort — multi-level priority sort builder ──
+// Up to 3 sort levels, each with a key and direction.
+// State is kept in autoSortLevels[] while the modal is open.
+let autoSortLevels = [
+  { key: 'due-date', dir: 'asc' },
+  { key: 'like-sku', dir: 'asc' },
+  { key: 'must-ship', dir: 'asc' },
+];
+
+const SORT_KEY_LABELS = {
+  'due-date':  'Due Date',
+  'like-sku':  'SKU',
+  'must-ship': 'Must Ship First',
+  'takt-asc':  'Shortest TAKT',
+  'takt-desc': 'Longest TAKT',
+  'none':      '— None —',
+};
+
 function openAutoSortModal() {
   if (!scheduleItems.length) { toast('No schedule loaded to sort', 'info'); return; }
+  _renderAutoSortModal();
   document.getElementById('modal-auto-sort').classList.add('open');
 }
 
-// Called by each sort option button in the modal
-function runAutoSort(mode) {
+function _renderAutoSortModal() {
+  const container = document.getElementById('auto-sort-levels');
+  if (!container) return;
+
+  // Ensure we always have exactly 3 levels (pad with 'none' if needed)
+  while (autoSortLevels.length < 3) autoSortLevels.push({ key: 'none', dir: 'asc' });
+  autoSortLevels = autoSortLevels.slice(0, 3);
+
+  const keyOptions = (selected) => Object.entries(SORT_KEY_LABELS).map(([val, lbl]) =>
+    `<option value="${val}" ${selected === val ? 'selected' : ''}>${lbl}</option>`
+  ).join('');
+
+  container.innerHTML = autoSortLevels.map((lvl, i) => `
+    <div class="sort-level-row">
+      <span class="sort-level-num">${i + 1}</span>
+      <select class="sort-level-key select" style="flex:1;" onchange="autoSortLevels[${i}].key=this.value;_renderAutoSortModal()">
+        ${keyOptions(lvl.key)}
+      </select>
+      ${lvl.key !== 'none' && lvl.key !== 'must-ship' && lvl.key !== 'takt-asc' && lvl.key !== 'takt-desc' ? `
+        <select class="sort-level-dir select" style="width:110px;" onchange="autoSortLevels[${i}].dir=this.value">
+          <option value="asc" ${lvl.dir === 'asc' ? 'selected' : ''}>↑ Asc</option>
+          <option value="desc" ${lvl.dir === 'desc' ? 'selected' : ''}>↓ Desc</option>
+        </select>` : `<div style="width:110px;"></div>`}
+      ${i > 0 ? `<button class="btn btn-ghost btn-xs sort-level-remove" onclick="autoSortLevels.splice(${i},1);autoSortLevels.push({key:'none',dir:'asc'});_renderAutoSortModal()" title="Remove this level">✕</button>` : `<div style="width:32px;"></div>`}
+    </div>
+  `).join('');
+}
+
+function _sortComparatorForKey(key, dir, a, b, origIdxA, origIdxB) {
+  switch (key) {
+    case 'due-date': {
+      const ad = a.dueDate, bd = b.dueDate;
+      let cmp;
+      if (ad && bd)   cmp = ad.localeCompare(bd);
+      else if (ad)    cmp = -1;
+      else if (bd)    cmp =  1;
+      else            cmp = origIdxA - origIdxB;
+      return dir === 'desc' ? -cmp : cmp;
+    }
+    case 'like-sku': {
+      const aBase = baseSku(a.sku), bBase = baseSku(b.sku);
+      let cmp = aBase.localeCompare(bBase, undefined, { numeric: true, sensitivity: 'base' });
+      if (!cmp) cmp = String(a.sku).localeCompare(String(b.sku), undefined, { numeric: true, sensitivity: 'base' });
+      return dir === 'desc' ? -cmp : cmp;
+    }
+    case 'must-ship':
+      if (a.mustShip !== b.mustShip) return a.mustShip ? -1 : 1;
+      return 0;
+    case 'takt-asc':
+      return (a.taktMins || 0) - (b.taktMins || 0);
+    case 'takt-desc':
+      return (b.taktMins || 0) - (a.taktMins || 0);
+    default:
+      return 0;
+  }
+}
+
+function runAutoSort() {
   closeModal('modal-auto-sort');
   if (!scheduleItems.length) return;
+
+  const activeLevels = autoSortLevels.filter(l => l.key !== 'none');
+  if (!activeLevels.length) { toast('No sort levels selected', 'info'); return; }
+
   const before = scheduleItems.map(it => it.sku + '|' + it.dueDate).join('~');
 
-  switch (mode) {
-    case 'like-sku':
-      scheduleItems = scheduleItems
-        .map((it, i) => ({ it, i }))
-        .sort((a, b) => {
-          const aBase = baseSku(a.it.sku), bBase = baseSku(b.it.sku);
-          if (aBase !== bBase) return aBase.localeCompare(bBase, undefined, { numeric: true, sensitivity: 'base' });
-          const skuCmp = String(a.it.sku).localeCompare(String(b.it.sku), undefined, { numeric: true, sensitivity: 'base' });
-          if (skuCmp) return skuCmp;
-          const dueCmp = String(a.it.dueDate || '').localeCompare(String(b.it.dueDate || ''));
-          return dueCmp || a.i - b.i;
-        })
-        .map(r => r.it);
-      break;
-
-    case 'due-date':
-      scheduleItems = scheduleItems
-        .map((it, i) => ({ it, i }))
-        .sort((a, b) => {
-          const ad = a.it.dueDate, bd = b.it.dueDate;
-          if (ad && bd) return ad.localeCompare(bd);
-          if (ad && !bd) return -1;
-          if (!ad && bd) return  1;
-          return a.i - b.i;
-        })
-        .map(r => r.it);
-      break;
-
-    case 'takt-asc':
-      scheduleItems = [...scheduleItems].sort((a, b) => (a.taktMins || 0) - (b.taktMins || 0));
-      break;
-
-    case 'takt-desc':
-      scheduleItems = [...scheduleItems].sort((a, b) => (b.taktMins || 0) - (a.taktMins || 0));
-      break;
-
-    case 'must-ship':
-      scheduleItems = scheduleItems
-        .map((it, i) => ({ it, i }))
-        .sort((a, b) => {
-          if (a.it.mustShip !== b.it.mustShip) return a.it.mustShip ? -1 : 1;
-          const ad = a.it.dueDate, bd = b.it.dueDate;
-          if (ad && bd) return ad.localeCompare(bd);
-          if (ad && !bd) return -1;
-          if (!ad && bd) return  1;
-          return a.i - b.i;
-        })
-        .map(r => r.it);
-      break;
-
-    default:
-      return;
-  }
+  scheduleItems = scheduleItems
+    .map((it, i) => ({ it, i }))
+    .sort((a, b) => {
+      for (const lvl of activeLevels) {
+        const cmp = _sortComparatorForKey(lvl.key, lvl.dir, a.it, b.it, a.i, b.i);
+        if (cmp !== 0) return cmp;
+      }
+      return a.i - b.i;
+    })
+    .map(r => r.it);
 
   const after = scheduleItems.map(it => it.sku + '|' + it.dueDate).join('~');
   if (after === before) { toast('Already sorted that way', 'info'); return; }
-  logAction(LOG.ITEM_REORDERED, { note: 'Auto sorted: ' + mode });
+  logAction(LOG.ITEM_REORDERED, { note: 'Auto sorted: ' + activeLevels.map(l => l.key).join(' > ') });
   render(); markUnsaved();
-  toast('Schedule sorted', 'ok');
+  toast('Schedule sorted (' + activeLevels.map(l => SORT_KEY_LABELS[l.key]).join(' → ') + ')', 'ok');
 }
 
-// Legacy alias — still called by ensureAutoSortButton in older cached HTML
+// Legacy alias — kept for backward compatibility
 function autoSortLikeSkus() { openAutoSortModal(); }
+// Legacy single-mode alias (called by older cached HTML sort buttons if they exist)
+function runAutoSort_legacy(mode) {
+  autoSortLevels = [{ key: mode === 'takt-asc' ? 'takt-asc' : mode === 'takt-desc' ? 'takt-desc' : mode, dir: 'asc' }];
+  while (autoSortLevels.length < 3) autoSortLevels.push({ key: 'none', dir: 'asc' });
+  runAutoSort();
+}
 
 
 function _roundOneDecimal(n) { return Math.round(Number(n || 0) * 10) / 10; }
@@ -1267,7 +1333,7 @@ async function doSave() {
     if (hist.length) await sb('sts_schedule_history', 'POST', hist).catch(() => {});
     logAction(LOG.SCHEDULE_SAVED, { schedule_id: schedId, quantity: scheduleItems.length, note: cellName });
     closeModal('modal-save'); markSaved(); toast('Schedule saved!', 'ok');
-    if (pendingPrintAfterSave) { pendingPrintAfterSave = false; setTimeout(() => window.print(), 300); }
+    if (pendingPrintAfterSave) { pendingPrintAfterSave = false; setTimeout(() => window.print(), 700); }
     // Open View All panel so area leader sees all cells, then prompt for another schedule
     if (typeof toggleViewAllCells === 'function') {
       const panel = document.getElementById('view-all-panel');
@@ -1285,18 +1351,6 @@ async function doSave() {
 // ── Parse button ──
 function baseCellNum(cn) { const m = cn.match(/Cell\s+(\d+)/i) || cn.match(/Euro\s+(\d+)/i); return m ? parseInt(m[1]) : null; }
 function areCellVariants(a, b) { if (a === b) return false; const na = baseCellNum(a), nb = baseCellNum(b); return na !== null && nb !== null && na === nb; }
-
-async function loadWarrantiesManual() {
-  if (!cellName) { toast('Parse a schedule first', 'info'); return; }
-  try {
-    const wItems = await loadWarrantyItemsForCell(cellName);
-    if (!wItems.length) { toast('No warranty items assigned to ' + cellName, 'info'); return; }
-    const before = scheduleItems.length; scheduleItems = mergeWarrantyItems(scheduleItems, wItems);
-    const added = scheduleItems.length - before;
-    if (!added) { toast('Warranty items already loaded', 'info'); return; }
-    render(); markUnsaved(); toast(`Added ${added} warranty item${added !== 1 ? 's' : ''} for ${cellName}`, 'ok');
-  } catch (e) { toast('Failed: ' + e.message, 'err'); }
-}
 
 // ── Saved schedules ──
 async function loadSchedule(id) {
@@ -1401,29 +1455,4 @@ function printHandoff() {
   const rows = active.map(it => `<tr><td style="font-family:monospace;font-weight:700;">${esc(it.sku)}</td><td style="font-family:monospace;font-size:9pt;">${esc(it.orderNum||'—')}</td><td style="text-align:center;font-weight:700;">${esc(it.qty)}</td><td>${esc(it.dueDate||'—')}</td><td>${esc(it.mustShip?'Must Ship':it.orderType==='warranty'?'Warranty':it.orderType==='replacement'?'Full Repl.':'—')}</td></tr>`).join('');
   const html = `<!DOCTYPE html><html><head><title>Handoff — ${esc(cellName)}</title><style>body{font-family:Arial,sans-serif;font-size:10pt;padding:16px;}table{width:100%;border-collapse:collapse;}th{font-size:8pt;text-transform:uppercase;padding:5px 8px;text-align:left;border-bottom:2px solid #333;}td{padding:5px 8px;border-bottom:1px solid #ddd;}@media print{@page{margin:8mm;size:landscape;}}</style></head><body><h2>Shift Handoff — ${esc(cellName)}</h2><p style="color:#555;font-size:9pt;">Prepared by ${esc(currentUser.name)} · ${esc(new Date().toLocaleString())} · ${active.length} items · ${active.reduce((s,it)=>s+it.qty,0)} units</p><table><thead><tr><th>SKU</th><th>Order #</th><th>Qty Left</th><th>Due</th><th>Type</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
   const win = window.open('', '_blank', 'width=900,height=600'); win.document.open(); win.document.write(html); win.document.close(); win.focus(); setTimeout(() => win.print(), 400);
-}
-
-// ── Warranty queue ──
-async function loadWarrantyItemsForCell(targetCellName) {
-  try {
-    const n = cellBaseNum(targetCellName);
-    const variantMatch = targetCellName.match(/Cell\s+\d+([ab])/i);
-    const variant = variantMatch ? variantMatch[1].toLowerCase() : null;
-    let rows = [];
-    if (n) {
-      rows = await sb(`sts_warranty_queue?assigned_cell_num=eq.${n}&status=in.(assigned,scheduled)&select=*`);
-      if (variant && rows && rows.length) rows = rows.filter(w => { const ac = String(w.assigned_cell || '').toLowerCase(); const rv = ac.match(/\d+([ab])/); if (rv) return rv[1] === variant; return true; });
-    }
-    if (!rows || !rows.length) rows = await sb(`sts_warranty_queue?assigned_cell=eq.${encodeURIComponent(targetCellName)}&status=in.(assigned,scheduled)&select=*`);
-    return (rows || []).map(w => {
-      const takt = Number(w.takt_minutes || 0), qty = Number(w.quantity || 1), ref = w.warranty_order || w.id, partNumber = w.inventory_id || w.sku || w.line_description || ref || 'WARRANTY';
-      return { sku: partNumber, inventoryId: w.inventory_id || null, description: w.line_description || '', qty, totalQty: qty, taktMins: takt, taktStr: fmtTakt(takt), dueDate: w.due_date || null, mustShip: !!w.must_ship, orderNum: ref, orderNums: [ref].filter(Boolean), orderBreakdown: [{ orderNum: ref, qty, taktMins: takt, dueDate: w.due_date || null }], orderType: w.order_type === 'replacement' ? 'replacement' : 'warranty', sourceCell: w.assigned_cell || targetCellName, sourceSystem: 'warranty', sourceRef: w.id, lockedSource: true, boxes: 'have_all', hardware: 'have_all', lumber: 'have_all', slings: 'have_all', bentParts: 'have_all', showSlings: false, showBentParts: false, merged: false };
-    });
-  } catch (e) { console.warn('Warranty queue unavailable:', e); toast('Warranty queue unavailable: ' + e.message, 'err'); return []; }
-}
-
-function mergeWarrantyItems(existingItems, warrantyItems) {
-  if (!warrantyItems.length) return existingItems;
-  const existingKeys = new Set(existingItems.flatMap(it => (it.orderNums && it.orderNums.length ? it.orderNums : [it.orderNum]).filter(Boolean).map(o => String(o).toUpperCase())));
-  return [...existingItems, ...warrantyItems.filter(w => { const key = String(w.orderNum || '').toUpperCase(); return key && !existingKeys.has(key); })];
 }

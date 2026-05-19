@@ -151,7 +151,6 @@
       <button class="btn btn-primary btn-sm" id="btn-auto-sort" onclick="openAutoSortModal()">Auto Sort</button>
       <button class="btn btn-ghost btn-sm" id="btn-clear">Clear</button>
       <button class="btn btn-ghost btn-sm" id="btn-handoff">Handoff</button>
-      <button class="btn btn-ghost btn-sm" id="btn-load-warranty-current">Load Warranties</button>
       <button class="btn btn-ghost btn-sm" id="btn-print">Print</button>
       <button class="btn btn-down btn-sm" id="btn-sched-mdown" onclick="openMachineDownFromSchedule()" style="display:none;">🔴 Machine Down</button>
       <button class="btn btn-success btn-sm" id="btn-sched-cleardown" onclick="openClearMachineDownFromSchedule()" style="display:none;">✅ Clear Down</button>
@@ -210,33 +209,14 @@
 
 <!-- ══ AUTO SORT MODAL ══ -->
 <div class="modal-bd" id="modal-auto-sort">
-  <div class="modal" style="max-width:420px;">
+  <div class="modal" style="max-width:480px;">
     <div class="modal-title">⚙ Auto Sort</div>
-    <div class="modal-sub">Choose how to sort the schedule.</div>
-    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:4px;">
-      <button class="sort-opt-btn" onclick="runAutoSort('like-sku')">
-        <div class="sort-opt-title">Group Like SKUs</div>
-        <div class="sort-opt-desc">Cluster the same base SKU / color family together</div>
-      </button>
-      <button class="sort-opt-btn" onclick="runAutoSort('due-date')">
-        <div class="sort-opt-title">By Due Date</div>
-        <div class="sort-opt-desc">Earliest due date first, no-due-date items last</div>
-      </button>
-      <button class="sort-opt-btn" onclick="runAutoSort('takt-asc')">
-        <div class="sort-opt-title">Shortest TAKT First</div>
-        <div class="sort-opt-desc">Quick jobs up front — lowest total TAKT first</div>
-      </button>
-      <button class="sort-opt-btn" onclick="runAutoSort('takt-desc')">
-        <div class="sort-opt-title">Longest TAKT First</div>
-        <div class="sort-opt-desc">Heaviest jobs up front — highest total TAKT first</div>
-      </button>
-      <button class="sort-opt-btn" onclick="runAutoSort('must-ship')">
-        <div class="sort-opt-title">Must Ship First</div>
-        <div class="sort-opt-desc">Must Ship items at the top, then by due date</div>
-      </button>
-    </div>
-    <div class="modal-actions">
+    <div class="modal-sub">Set up to 3 sort levels — items are sorted by level 1 first, then by level 2 within ties, then level 3.</div>
+    <div id="auto-sort-levels"></div>
+    <div class="sort-preview-hint" id="sort-preview-hint" style="display:none;"></div>
+    <div class="modal-actions" style="margin-top:14px;">
       <button class="btn btn-ghost" onclick="closeModal('modal-auto-sort')">Cancel</button>
+      <button class="btn btn-primary" onclick="runAutoSort()">Apply Sort</button>
     </div>
   </div>
 </div>

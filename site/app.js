@@ -381,7 +381,6 @@ document.getElementById('btn-clear').addEventListener('click', () => {
 });
 
 document.getElementById('btn-handoff').addEventListener('click', openHandoff);
-document.getElementById('btn-load-warranty-current').addEventListener('click', loadWarrantiesManual);
 
 function toggleTheme() {
   const isLight = document.body.classList.toggle('light-mode');

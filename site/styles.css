@@ -825,7 +825,7 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
 .mat-sel-bent.has-need { border-color: var(--yellow); color: var(--yellow); background: var(--yellow-dim); }
 .mat-sel-bent:focus { border-color: var(--accent); }
 
-/* ── Auto Sort option buttons ── */
+/* ── Auto Sort option buttons (legacy single-click style, kept for fallback) ── */
 .sort-opt-btn {
   display: flex; flex-direction: column; align-items: flex-start;
   width: 100%; padding: 10px 14px; border-radius: var(--radius-sm);
@@ -835,6 +835,138 @@ label.field-label{display:block;font-size:var(--fs-xs);font-weight:700;text-tran
 .sort-opt-btn:hover { border-color: var(--accent); background: var(--accent-dim); }
 .sort-opt-title { font-size: var(--fs-sm); font-weight: 700; color: var(--text); }
 .sort-opt-desc  { font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* ── Multi-level sort builder ── */
+.sort-level-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: var(--radius-sm);
+  background: var(--surface2); border: 1px solid var(--border2);
+}
+.sort-level-num {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  color: var(--text-dim); background: var(--surface3);
+  border: 1px solid var(--border2); border-radius: 50%;
+  width: 22px; height: 22px; display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0;
+}
+.sort-level-key, .sort-level-dir {
+  font-size: var(--fs-xs); padding: 6px 9px;
+}
+.sort-level-remove {
+  flex-shrink: 0; color: var(--text-dim); border-color: var(--border);
+  width: 28px; padding: 3px 6px; font-size: 11px;
+}
+.sort-level-remove:hover { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+#auto-sort-levels { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.sort-preview-hint {
+  font-size: var(--fs-xs); color: var(--text-muted);
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 12px;
+  font-family: var(--mono); margin-top: 4px;
+}
+
+/* ── COMPACT VIEW MODE ── */
+/* When enabled, each SKU card becomes a single dense row like a table */
+#schedule-list.compact-mode .sku-card {
+  margin-bottom: 4px;
+  border-radius: var(--radius-sm);
+}
+#schedule-list.compact-mode .card-row {
+  padding: 8px 12px;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+#schedule-list.compact-mode .card-sku {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+#schedule-list.compact-mode .card-sku-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  flex: 1;
+}
+#schedule-list.compact-mode .card-sku-name {
+  font-size: 15px;
+  white-space: nowrap;
+}
+#schedule-list.compact-mode .takt-pill {
+  font-size: 12px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+#schedule-list.compact-mode .card-sku-desc { display: none; }
+#schedule-list.compact-mode .card-qty-block {
+  margin-top: 0;
+  flex-shrink: 0;
+  gap: 5px;
+}
+#schedule-list.compact-mode .card-qty-label { display: none; }
+#schedule-list.compact-mode .card-qty-value {
+  font-size: 16px;
+  padding: 3px 8px;
+}
+#schedule-list.compact-mode .card-qty-total-clean {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+#schedule-list.compact-mode .card-orders-wrap { margin-top: 0; }
+#schedule-list.compact-mode .card-mats {
+  padding: 6px 12px;
+  gap: 8px;
+}
+#schedule-list.compact-mode .mat-group label {
+  font-size: 10px;
+}
+#schedule-list.compact-mode .mat-sel-boxes,
+#schedule-list.compact-mode .mat-sel-hw,
+#schedule-list.compact-mode .mat-sel-lumber,
+#schedule-list.compact-mode .mat-sel-slings,
+#schedule-list.compact-mode .mat-sel-bent {
+  font-size: 11px;
+  padding: 3px 5px;
+  max-width: 90px;
+}
+#schedule-list.compact-mode .card-right {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+#schedule-list.compact-mode .card-move-btns {
+  flex-direction: row;
+  gap: 2px;
+}
+#schedule-list.compact-mode .card-move-btn {
+  width: 24px;
+  padding: 2px 4px;
+  font-size: 9px;
+}
+#schedule-list.compact-mode .must-ship-toggle span { display: none; }
+#schedule-list.compact-mode .must-ship-toggle input { width: 15px; height: 15px; }
+#schedule-list.compact-mode .card-remove-btn {
+  font-size: 10px;
+  padding: 3px 8px;
+}
+#schedule-list.compact-mode .due-group-header {
+  padding: 10px 12px 5px;
+  font-size: var(--fs-xs);
+}
+#schedule-list.compact-mode .changeover-divider {
+  margin: 3px 0;
+}
+#schedule-list.compact-mode .card-badges .badge {
+  font-size: 9px;
+  padding: 1px 5px;
+}
+/* Hide mat event badges in compact mode (visible in expanded) */
+#schedule-list.compact-mode .card-mat-events { display: none; }
 
 /* ══ LIGHT MODE ══ */
 body.light-mode {
@@ -949,5 +1081,15 @@ body:not(.light-mode) #btn-theme-toggle { color: var(--yellow); border-color: va
 .repl-banner-inner {
   display: inline-block;
   animation: va-scroll 18s linear forwards;
+  padding-left: 100%;
+}
+/* ── Warranty Imported scrolling banner ── */
+@keyframes warranty-scroll {
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+.warranty-banner-inner {
+  display: inline-block;
+  animation: warranty-scroll 20s linear forwards;
   padding-left: 100%;
 }
