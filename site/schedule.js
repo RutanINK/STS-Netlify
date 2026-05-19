@@ -315,6 +315,12 @@ function render() {
     const ordersToggle = hasOrders ? `<button class="orders-toggle-btn" onclick="toggleOrdersPanel(this)" aria-expanded="false">Orders <span class="orders-toggle-count">${it.orderBreakdown.filter(o => o.orderNum).length}</span></button>` : '';
     const ordersPanel  = hasOrders ? `<div class="orders-panel" style="display:none;">${orderRows}</div>` : '';
     const mustShipToggle = `<label class="must-ship-toggle" title="Toggle Must Ship"><input type="checkbox" ${it.mustShip ? 'checked' : ''} onchange="toggleMustShip(${realIdx},this.checked)"><span>Must Ship</span></label>`;
+    const moveUpBtn   = realIdx > 0
+      ? `<button class="card-move-btn" title="Move Up" onclick="moveCard(${realIdx},-1)">&#9650;</button>`
+      : `<button class="card-move-btn" style="opacity:.2;cursor:not-allowed;" disabled title="Already first">&#9650;</button>`;
+    const moveDownBtn = realIdx < scheduleItems.length - 1
+      ? `<button class="card-move-btn" title="Move Down" onclick="moveCard(${realIdx},1)">&#9660;</button>`
+      : `<button class="card-move-btn" style="opacity:.2;cursor:not-allowed;" disabled title="Already last">&#9660;</button>`;
 
         const shortageMaterialLabel = shortageImpact ? `${shortageImpact.materialSku}${shortageImpact.componentSku && shortageImpact.componentSku !== shortageImpact.materialSku ? ` (BOM: ${shortageImpact.componentSku})` : ''}` : '';
     const shortageNotes = shortageImpact?.notes || '';
@@ -322,9 +328,17 @@ function render() {
 
     const normalMatsRow = `<div class="card-mats"><div class="${matGroupCls('boxes')}"><label>Boxes</label><select class="${matSelCls('boxes',it.boxes)}" onchange="setMat(${realIdx},'boxes',this)">${buildOpts(it.boxes, it.qty)}</select>${matPrint('Boxes', it.boxes)}</div><div class="${matGroupCls('hardware')}"><label>Hardware</label><select class="${matSelCls('hardware',it.hardware)}" onchange="setMat(${realIdx},'hardware',this)">${buildOpts(it.hardware, it.qty)}</select>${matPrint('Hardware', it.hardware)}</div><div class="${matGroupCls('lumber')}"><label>Lumber</label><select class="${matSelCls('lumber',it.lumber)}" onchange="setMat(${realIdx},'lumber',this)">${buildOpts(it.lumber, it.qty)}</select>${matPrint('Lumber', it.lumber)}</div><div class="mat-div"></div><button class="tog-btn ${it.showSlings ? 'on' : ''}" onclick="tog(${realIdx},'showSlings')">${it.showSlings ? 'x' : '+'} Slings</button>${it.showSlings ? `<div class="${matGroupCls('slings')}"><label>Slings</label><select class="${matSelCls('slings',it.slings)}" onchange="setMat(${realIdx},'slings',this)">${buildOpts(it.slings, it.qty)}</select>${matPrint('Slings', it.slings)}</div>` : ''}<button class="tog-btn ${it.showBentParts ? 'on' : ''}" onclick="tog(${realIdx},'showBentParts')">${it.showBentParts ? 'x' : '+'} Bent Parts</button>${it.showBentParts ? `<div class="${matGroupCls('bentParts')}"><label>Bent Parts</label><select class="${matSelCls('bentParts',it.bentParts)}" onchange="setMat(${realIdx},'bentParts',this)">${buildOpts(it.bentParts, it.qty)}</select>${matPrint('Bent Parts', it.bentParts)}</div>` : ''}</div>`;
     const matsRow = isBlocked
-      ? `<div class="card-mats" style="background:var(--red-dim);border-top:1px solid var(--red);"><span style="color:var(--red);font-size:12px;font-weight:600;">Blocked — ${shortageStatusLabel}${shortageMaterialLabel ? `: ${schedEsc(shortageMaterialLabel)}` : ''}.${shortageNotes ? `<span style="color:var(--text-muted);margin-left:6px;">${schedEsc(shortageNotes)}</span>` : ''} Remove this item or mark the material/profile in stock before saving.</span></div>`
+      ? `<div class="card-mats" style="background:var(--red-dim);border-top:1px solid var(--red);"><span style="color:var(--red);font-size:12px;font-weight:600;">Blocked — ${shortageStatusLabel}${shortageMaterialLabel ? `: ${schedEsc(shortageMaterialLabel)}` : ''}.${shortageNotes ? `<span style="color:var(--text-muted);margin-left:6px;">${schedEsc(shortageNotes)}</span>` : ''} Remove this item before saving.</span></div>`
       : isGreyList
-        ? `<div class="card-mats" style="background:var(--yellow-dim);border-top:1px solid var(--yellow);"><span style="color:var(--yellow);font-size:12px;font-weight:600;">Low Quantity${shortageMaterialLabel ? `: ${schedEsc(shortageMaterialLabel)}` : ''}.${shortageNotes ? `<span style="color:var(--text-muted);margin-left:6px;">${schedEsc(shortageNotes)}</span>` : ''} ${isSup ? `<button class="btn btn-ghost btn-xs" style="margin-left:8px;" onclick="openShortageApprove('${jsArg(it.sku)}','${jsArg(shortageNotes)}','${jsArg(shortageImpact?.materialSku || '')}','${jsArg(shortageImpact?.componentSku || '')}','${jsArg(shortageImpact?.status || 'low_quantity')}')">Approve Override</button>` : 'A supervisor, manager, or admin must approve scheduling this SKU.'}</span></div>${normalMatsRow}`
+        ? (() => {
+            const orderNumsForApproval = (it.orderBreakdown || []).map(ob => ob.orderNum).filter(Boolean);
+            const approveBtn = isSup
+              ? `<button class="btn btn-ghost btn-xs" style="margin-left:8px;" onclick="openShortageApprove('${jsArg(it.sku)}','${jsArg(shortageNotes)}','${jsArg(shortageImpact?.materialSku || '')}','${jsArg(shortageImpact?.componentSku || '')}','${jsArg(shortageImpact?.status || 'low_quantity')}',${JSON.stringify(orderNumsForApproval)})">Approve Override</button>`
+              : '<span style="font-style:italic;">Requires supervisor or manager approval — ask them to approve this card.</span>';
+            const isApproved = orderNumsForApproval.length > 0 && orderNumsForApproval.every(on => approvedOverrides[on]);
+            if (isApproved) return `${normalMatsRow}`;
+            return `<div class="card-mats" style="background:var(--yellow-dim);border-top:1px solid var(--yellow);"><span style="color:var(--yellow);font-size:12px;font-weight:600;">Low Quantity${shortageMaterialLabel ? `: ${schedEsc(shortageMaterialLabel)}` : ''}.${shortageNotes ? `<span style="color:var(--text-muted);margin-left:6px;">${schedEsc(shortageNotes)}</span>` : ''} ${approveBtn}</span></div>${normalMatsRow}`;
+          })()
         : normalMatsRow;
     const dragAttrs = canDrag ? `draggable="true" ondragstart="onDS(event,${realIdx})" ondragover="onDO(event,${realIdx})" ondrop="onDP(event,${realIdx})" ondragleave="onDL(event)" ondragend="onDE(event)"` : `draggable="false" title="Warranty items cannot be reordered"`;
     // Material handler progress indicators — shown on cell's schedule card
@@ -347,7 +361,7 @@ function render() {
     }
     // Pulled / Prepped / Delivered ("To Cell") are internal handler states — not shown on cell view
     const matEventsRow = evBits.length ? `<div class="card-mat-events">${evBits.join('')}</div>` : '';
-    html.push(`<div class="${cls.join(' ')}" ${dragAttrs} data-idx="${realIdx}"><div class="card-row"><span class="card-drag" style="${canDrag ? '' : 'opacity:.2;cursor:not-allowed;'}">&#8942;</span><div class="card-sku"><div class="card-sku-top"><span class="card-sku-name">${schedEsc(it.sku)}</span><span class="takt-pill">${schedEsc(it.taktStr)}</span>${dueBadge(it.dueDate)}<div class="card-badges">${badges.join('')}</div>${srcTags}</div>${it.description ? `<div class="card-sku-desc">${schedEsc(it.description)}</div>` : ''}${qtyDisplay}${matEventsRow}<div class="card-orders-wrap">${ordersToggle}${ordersPanel}</div></div><div class="card-right">${mustShipToggle}<button class="card-remove-btn" onclick="removeCard(${realIdx})">Remove</button></div></div>${matsRow}</div>`);
+    html.push(`<div class="${cls.join(' ')}" ${dragAttrs} data-idx="${realIdx}"><div class="card-row"><span class="card-drag" style="${canDrag ? '' : 'opacity:.2;cursor:not-allowed;'}">&#8942;</span><div class="card-sku"><div class="card-sku-top"><span class="card-sku-name">${schedEsc(it.sku)}</span><span class="takt-pill">${schedEsc(it.taktStr)}</span>${dueBadge(it.dueDate)}<div class="card-badges">${badges.join('')}</div>${srcTags}</div>${it.description ? `<div class="card-sku-desc">${schedEsc(it.description)}</div>` : ''}${qtyDisplay}${matEventsRow}<div class="card-orders-wrap">${ordersToggle}${ordersPanel}</div></div><div class="card-right">${mustShipToggle}<div class="card-move-btns">${moveUpBtn}${moveDownBtn}</div><button class="card-remove-btn" onclick="removeCard(${realIdx})">Remove</button></div></div>${matsRow}</div>`);
   });
   list.innerHTML = html.join('');
   buildPrintTable();
@@ -399,20 +413,26 @@ function toggleOrderDone(realIdx, orderNum) {
 }
 
 // ── Order done for warranty/replacement — prompts supervisor inspection ──
-function toggleOrderDoneWithInspect(realIdx, orderNum, sku, orderType) {
+async function toggleOrderDoneWithInspect(realIdx, orderNum, sku, orderType) {
   if (!orderDoneState[realIdx]) orderDoneState[realIdx] = {};
   const nowDone = !orderDoneState[realIdx][orderNum];
   orderDoneState[realIdx][orderNum] = nowDone;
   if (nowDone) {
     const typeLabel = orderType === 'warranty' ? 'Warranty' : 'Full Replacement';
     pendingInspections.push({ orderNum, sku, typeLabel, cell: cellName, markedBy: currentUser.name, markedAt: new Date().toISOString() });
-    sb('sts_inspection_queue?select=id', 'POST', {
-      order_number: orderNum, sku, order_type: orderType, cell_name: cellName,
-      marked_by: currentUser.name, campus: currentUser.campus, status: 'pending',
-      created_at: new Date().toISOString()
-    }).catch(() => {});
+    try {
+      await sb('sts_inspection_queue?select=id', 'POST', {
+        order_number: orderNum, sku, order_type: orderType, cell_name: cellName,
+        marked_by: currentUser.name, campus: currentUser.campus, status: 'pending',
+        created_at: new Date().toISOString()
+      });
+    } catch(e) { console.warn('inspection_queue write failed:', e.message); }
     logAction(LOG.INSPECT_REQUESTED, { sku, order_number: orderNum, note: typeLabel + ' marked done' });
     toast(`${typeLabel} marked done — supervisor notified to inspect`, 'info');
+    // Fire scrolling banner for supervisors/managers on same campus
+    if (typeof showReplacementBanner === 'function') {
+      showReplacementBanner(sku, orderNum, cellName, typeLabel);
+    }
   } else {
     logAction(LOG.ORDER_UNDONE, { sku, order_number: orderNum });
   }
@@ -722,8 +742,22 @@ function removeCard(cardIdx) {
 }
 
 // ── Blacklist ──
+let _pendingBlockOrderNum = null;
 function blacklistOrder(orderNum) {
+  _pendingBlockOrderNum = orderNum;
+  const el = document.getElementById('block-order-num-display');
+  if (el) el.textContent = orderNum;
+  const modal = document.getElementById('modal-block-order');
+  if (modal) { modal.classList.add('open'); return; }
+  // Fallback if modal not in DOM yet
   if (!confirm(`Block order ${orderNum} from being scheduled?`)) return;
+  _confirmBlacklistOrder();
+}
+function _confirmBlacklistOrder() {
+  const orderNum = _pendingBlockOrderNum;
+  if (!orderNum) return;
+  _pendingBlockOrderNum = null;
+  closeModal('modal-block-order');
   blacklistedOrders.add(_normOrderNumber(orderNum));
   sb('sts_blacklisted_orders?select=id', 'POST', { order_number: orderNum, blocked_by: currentUser.name, campus: currentUser.campus, created_at: new Date().toISOString() })
     .catch(() => {});
@@ -1073,6 +1107,20 @@ function mhToggle(idx, checked) {
 }
 function mhComment(idx, val) { if (!mhCheckState[idx]) mhCheckState[idx] = { done: false, comment: '' }; mhCheckState[idx].comment = val; }
 
+// ── Move card up/down ──
+function moveCard(idx, direction) {
+  const newIdx = idx + direction;
+  if (newIdx < 0 || newIdx >= scheduleItems.length) return;
+  const item = scheduleItems.splice(idx, 1)[0];
+  scheduleItems.splice(newIdx, 0, item);
+  render(); markUnsaved();
+  // Scroll the moved card into view after re-render
+  requestAnimationFrame(() => {
+    const cards = document.querySelectorAll('.sku-card');
+    if (cards[newIdx]) cards[newIdx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+}
+
 // ── Drag & Drop ──
 function onDS(e, i) { dragSrcIndex = i; e.currentTarget.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; }
 function onDO(e, i) { e.preventDefault(); document.querySelectorAll('.sku-card').forEach(c => c.classList.remove('drag-over')); if (i !== dragSrcIndex) e.currentTarget.classList.add('drag-over'); }
@@ -1103,20 +1151,71 @@ async function validateScheduleBeforeSave() {
   const blockedOrderSet = new Set([...blacklistedOrders].map(_normOrderNumber).filter(Boolean));
   const blockedOrders = [];
   const supplyBlocks = [];
+  const greyItems = [];
   scheduleItems.forEach(it => {
     (it.orderBreakdown || []).forEach(ob => { const orderNum = _normOrderNumber(ob.orderNum); if (orderNum && blockedOrderSet.has(orderNum)) blockedOrders.push({ orderNum, sku: it.sku, qty: ob.qty }); });
     const direct = (typeof getDirectHardShortageReason === 'function') ? getDirectHardShortageReason(it.sku) : null;
     if (direct) supplyBlocks.push({ sku: it.sku, component: direct.sku, shortageSku: direct.sku, notes: direct.notes || 'Out of stock', source: 'direct' });
     const bom = (typeof getBOMHardBlockReason === 'function') ? getBOMHardBlockReason(it.sku) : null;
     if (bom) supplyBlocks.push({ sku: it.sku, component: bom.component, shortageSku: bom.shortageSku || bom.component, notes: bom.notes || 'Out of stock', source: 'bom' });
+    // Track low-quantity (grey) items — block unless EVERY order number on that card is approved
+    if (!direct && !bom && isSKUGreyList(it.sku)) {
+      const orderNums = (it.orderBreakdown || []).map(ob => ob.orderNum).filter(Boolean);
+      const unapproved = orderNums.filter(on => !approvedOverrides[on]);
+      // If no order numbers at all, treat as unapproved
+      if (unapproved.length > 0 || orderNums.length === 0) {
+        greyItems.push({ sku: it.sku, orderNums, unapproved });
+      }
+    }
   });
-  return { ok: blockedOrders.length === 0 && supplyBlocks.length === 0, blockedOrders: _dedupeByKey(blockedOrders, r => `${r.orderNum}|${r.sku}`), supplyBlocks: _dedupeByKey(supplyBlocks, r => `${r.sku}|${r.component}|${r.shortageSku}`) };
+  return {
+    ok: blockedOrders.length === 0 && supplyBlocks.length === 0,
+    blockedOrders: _dedupeByKey(blockedOrders, r => `${r.orderNum}|${r.sku}`),
+    supplyBlocks: _dedupeByKey(supplyBlocks, r => `${r.sku}|${r.component}|${r.shortageSku}`),
+    greyItems: _dedupeByKey(greyItems, r => r.sku),
+  };
 }
 function showScheduleSaveBlockers(v) {
   const lines = ['Cannot save this schedule yet. Remove or resolve these blocked items first.'];
   if (v.blockedOrders.length) { lines.push('', 'Blocked order numbers:'); v.blockedOrders.slice(0, 30).forEach(r => lines.push(`- ${r.orderNum} on ${r.sku}${r.qty ? ` (qty ${r.qty})` : ''}`)); if (v.blockedOrders.length > 30) lines.push(`- ...and ${v.blockedOrders.length - 30} more`); }
   if (v.supplyBlocks.length) { lines.push('', 'Out-of-stock material/BOM blocks:'); v.supplyBlocks.slice(0, 30).forEach(r => { if (r.source === 'bom') { const shortage = r.shortageSku && r.shortageSku !== r.component ? `; shortage profile ${r.shortageSku}` : ''; lines.push(`- ${r.sku} uses ${r.component}${shortage}${r.notes ? ` — ${r.notes}` : ''}`); } else lines.push(`- ${r.sku} is listed as out of stock${r.notes ? ` — ${r.notes}` : ''}`); }); if (v.supplyBlocks.length > 30) lines.push(`- ...and ${v.supplyBlocks.length - 30} more`); }
   alert(lines.join('\n')); toast('Schedule has blocked orders or out-of-stock materials', 'err');
+}
+
+function showGreySaveBlockers(greyItems) {
+  openGreySaveBlockModal(greyItems);
+}
+
+function openGreySaveBlockModal(greyItems) {
+  // Build or reuse the grey-block modal
+  let modal = document.getElementById('modal-grey-save-block');
+  if (!modal) {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="modal-bd" id="modal-grey-save-block" style="z-index:700;">
+        <div class="modal" style="border-color:var(--yellow);max-width:520px;">
+          <div class="modal-title" style="color:var(--yellow);">⚠ Supervisor Approval Required</div>
+          <div class="modal-sub">The following orders have low-quantity lumber and cannot be saved until a supervisor or manager approves each one.</div>
+          <div id="grey-block-list" style="margin:14px 0;display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto;"></div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" onclick="closeModal('modal-grey-save-block')">Close</button>
+          </div>
+        </div>
+      </div>`);
+    modal = document.getElementById('modal-grey-save-block');
+  }
+  const listEl = document.getElementById('grey-block-list');
+  listEl.innerHTML = greyItems.map(item => {
+    const orderList = item.unapproved && item.unapproved.length
+      ? item.unapproved.map(on => `<span style="font-family:var(--mono);font-size:13px;font-weight:700;background:var(--surface2);border:1px solid var(--border2);border-radius:4px;padding:2px 8px;">${schedEsc(on)}</span>`).join(' ')
+      : '<span style="color:var(--text-muted);font-size:12px;">No order numbers — remove this SKU to proceed.</span>';
+    return `<div style="background:var(--surface);border:1px solid var(--yellow);border-radius:var(--radius);padding:12px 14px;">
+      <div style="font-family:var(--mono);font-weight:700;font-size:15px;color:var(--text);margin-bottom:6px;">${schedEsc(item.sku)}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Unapproved orders requiring supervisor sign-off:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">${orderList}</div>
+    </div>`;
+  }).join('');
+  modal.classList.add('open');
+  toast('A supervisor must approve the low-quantity orders before saving', 'err');
 }
 
 
@@ -1128,6 +1227,16 @@ async function doSave() {
   if (!validation.ok) {
     showScheduleSaveBlockers(validation);
     return;
+  }
+  // Grey (low-quantity) items: hard block for non-supervisors, warn-only for supervisors
+  if (validation.greyItems && validation.greyItems.length) {
+    if (!SUP_ROLES.includes(currentUser.role)) {
+      showGreySaveBlockers(validation.greyItems);
+      return;
+    }
+    // Supervisors can save but get a reminder toast
+    const skuList = validation.greyItems.map(r => r.sku).join(', ');
+    toast(`Schedule saved. Low-quantity items not yet approved: ${skuList}`, 'info');
   }
 
   const btn = document.getElementById('btn-save-confirm'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Saving…';
@@ -1159,6 +1268,16 @@ async function doSave() {
     logAction(LOG.SCHEDULE_SAVED, { schedule_id: schedId, quantity: scheduleItems.length, note: cellName });
     closeModal('modal-save'); markSaved(); toast('Schedule saved!', 'ok');
     if (pendingPrintAfterSave) { pendingPrintAfterSave = false; setTimeout(() => window.print(), 300); }
+    // Open View All panel so area leader sees all cells, then prompt for another schedule
+    if (typeof toggleViewAllCells === 'function') {
+      const panel = document.getElementById('view-all-panel');
+      if (panel && panel.style.display === 'none') toggleViewAllCells();
+      else if (typeof loadAllMyCells === 'function') loadAllMyCells(); // refresh if already open
+    }
+    // Prompt user if they need to make another schedule
+    setTimeout(() => {
+      document.getElementById('modal-another-sched').classList.add('open');
+    }, 400);
   } catch (e) { toast('Save failed: ' + e.message, 'err'); }
   finally { btn.disabled = false; btn.innerHTML = 'Save &amp; Continue'; }
 }

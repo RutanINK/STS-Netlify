@@ -1,0 +1,13 @@
+[build]
+  publish   = "site"
+  functions = "."
+
+[functions]
+  node_bundler = "esbuild"
+
+# Force Netlify function routes through before static file serving
+[[redirects]]
+  from   = "/.netlify/functions/*"
+  to     = "/.netlify/functions/:splat"
+  status = 200
+  force  = true

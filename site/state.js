@@ -39,11 +39,12 @@ let pendingInspections = [];
 let myCellsList = [];  // array of cell name strings
 
 const MAT_HANDLER_CONFIG = {
-  box_handler:      { field: null,        label: 'Box Handler',      col: 'Boxes',      showBoxGroups: true  },
-  lumber_handler:   { field: 'lumber',    label: 'Lumber Handler',   col: 'Lumber',     showBoxGroups: false },
-  hardware_handler: { field: 'hardware',  label: 'Hardware Handler', col: 'Hardware',   showBoxGroups: false },
-  bending_handler:  { field: 'bentParts', label: 'Bending Handler',  col: 'Bent Parts', showBoxGroups: false },
-  slings_handler:   { field: 'slings',    label: 'Slings Handler',   col: 'Slings',     showBoxGroups: false },
+  box_handler:            { field: null,        label: 'Box Handler',            col: 'Boxes',      showBoxGroups: true  },
+  lumber_handler:         { field: 'lumber',    label: 'Lumber Handler',         col: 'Lumber',     showBoxGroups: false },
+  hardware_handler:       { field: 'hardware',  label: 'Hardware Handler',       col: 'Hardware',   showBoxGroups: false },
+  bending_handler:        { field: 'bentParts', label: 'Bending Handler',        col: 'Bent Parts', showBoxGroups: false },
+  slings_handler:         { field: 'slings',    label: 'Slings Handler',         col: 'Slings',     showBoxGroups: false },
+  material_handling_lead: { field: 'lumber',    label: 'Material Handling Lead', col: 'Lumber',     showBoxGroups: false },
 };
 // Warranty auto-poll
 let warrantyPollTimer    = null;

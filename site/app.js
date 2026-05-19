@@ -330,7 +330,7 @@ document.getElementById('btn-parse').addEventListener('click', async () => {
 
     if (parsedBlockedOrders) toast(`${parsedBlockedOrders} blocked order${parsedBlockedOrders !== 1 ? 's' : ''} found. They remain visible but must be removed before save.`, 'err');
     if (blockedItems.length && !SUP_ROLES.includes(currentUser.role)) toast(`${blockedItems.length} SKU${blockedItems.length !== 1 ? 's' : ''} blocked due to component shortage.`, 'err');
-    if (greyItems.length && !SUP_ROLES.includes(currentUser.role)) toast(`${greyItems.length} SKU${greyItems.length !== 1 ? 's' : ''} have low-quantity components — supervisor approval required.`, 'info');
+    if (greyItems.length && !SUP_ROLES.includes(currentUser.role)) toast(`${greyItems.length} SKU${greyItems.length !== 1 ? 's' : ''} have low-quantity components — supervisor approval required before production.`, 'info');
 
     if (scheduleItems.length === 0) {
       cellName = parsedCell;
@@ -515,6 +515,7 @@ function _applyRoleVisibility() {
   const campus = currentUser.campus;
   const isSup  = SUP_ROLES.includes(role);
   const isMgr  = ['manager','admin'].includes(role);
+  const isAreaView = role === 'area_view';
   const setTab = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? '' : 'none'; };
   setTab('tab-mycells',     false);
   setTab('tab-bom',         false);
@@ -522,8 +523,9 @@ function _applyRoleVisibility() {
   if (myCellsPage) myCellsPage.style.display = 'none';
   const bomPage = document.getElementById('page-bom');
   if (bomPage) bomPage.style.display = 'none';
+  const isMHL  = role === 'material_handling_lead';
   setTab('tab-board',       isSup);
-  setTab('tab-shortages',   isSup);
+  setTab('tab-shortages',   isSup || isMHL);
   setTab('tab-blacklist',   isSup);
   setTab('tab-warrantymgr', isSup);
   setTab('tab-dashboard',   isMgr);
@@ -532,6 +534,16 @@ function _applyRoleVisibility() {
   ['stab-bent_rx','stab-lumber_rx'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = campus === 'RX' ? '' : 'none'; });
   const vas = document.getElementById('view-as-select');
   if (vas) vas.style.display = role === 'admin' ? '' : 'none';
+  // Area View: auto-open View All and start replacement poll
+  if (isAreaView) {
+    setTimeout(() => {
+      const panel = document.getElementById('view-all-panel');
+      if (panel && panel.style.display === 'none' && typeof toggleViewAllCells === 'function') toggleViewAllCells();
+    }, 600);
+    startReplacementPoll();
+  }
+  // Supervisors/managers: start replacement poll for banner notifications
+  if (isSup) startReplacementPoll();
 }
 
 
@@ -592,6 +604,12 @@ function switchRole(role) {
     const isMgr = ['manager','admin'].includes(role);
     if ((needsSup && !isSup) || (needsMgr && !isMgr)) showPage('schedule');
     else showPage(pid);
+  if (role === 'area_view') {
+    setTimeout(() => {
+      const panel = document.getElementById('view-all-panel');
+      if (panel && panel.style.display === 'none' && typeof toggleViewAllCells === 'function') toggleViewAllCells();
+    }, 400);
+  }
   }
 
   toast('Switched to role: ' + role.replace(/_/g, ' '), 'ok');
@@ -744,6 +762,9 @@ function saveMyCells() {
 function renderMyCellsCards() {
   const wrap = document.getElementById('mycells-cards');
   if (!wrap) return;
+  // Show/hide the "View All" button in the header based on how many cells are saved
+  const viewAllBtn = document.getElementById('btn-view-all-cells');
+  if (viewAllBtn) viewAllBtn.style.display = myCellsList.length > 1 ? '' : 'none';
   if (!myCellsList.length) {
     wrap.innerHTML = '<div style="color:var(--text-dim);font-size:var(--fs-sm);">No cells selected. Click "Manage My Cells" to add cells.</div>';
     return;
@@ -774,6 +795,228 @@ async function loadMyCellSchedule(cellNameVal, btn) {
     await loadSchedule(scheds[0].id);
     toast('Loaded ' + cellNameVal, 'ok');
   } catch(e) { toast('Failed: ' + e.message, 'err'); }
+}
+
+function toggleViewAllCells() {
+  const panel = document.getElementById('view-all-panel');
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  const btn = document.getElementById('btn-view-all-cells');
+  if (isOpen) {
+    panel.style.display = 'none';
+    if (btn) { btn.textContent = 'View All'; btn.classList.remove('active'); }
+  } else {
+    panel.style.display = 'block';
+    if (btn) { btn.textContent = '✕ Close All'; btn.classList.add('active'); }
+    loadAllMyCells();
+  }
+}
+
+// Per-cell done state for the View All panel: { scheduleId: { orderNum: true/false } }
+let _viewAllDoneState = {};
+
+async function _viewAllToggleDone(scheduleId, orderNum, btnEl) {
+  if (!_viewAllDoneState[scheduleId]) _viewAllDoneState[scheduleId] = {};
+  const nowDone = !_viewAllDoneState[scheduleId][orderNum];
+  _viewAllDoneState[scheduleId][orderNum] = nowDone;
+
+  // Optimistic UI update
+  const row = btnEl.closest('.va-order-row');
+  if (row) row.classList.toggle('va-order-done', nowDone);
+  btnEl.textContent = nowDone ? 'Undo' : 'Done';
+  btnEl.classList.toggle('done', nowDone);
+
+  // Build updated full done state for this schedule and persist
+  const allDone = _viewAllDoneState[scheduleId] || {};
+  sb('sts_schedules?id=eq.' + scheduleId, 'PATCH',
+    { order_done_state: JSON.stringify(allDone) },
+    { prefer: 'return=minimal' }
+  ).catch(() => toast('Could not save done state', 'err'));
+
+  // If this cell is also loaded in the main schedule view, sync it there too
+  if (savedScheduleId === scheduleId) {
+    orderDoneState = { ...allDone };
+    render();
+  }
+}
+
+async function loadAllMyCells() {
+  _loadMyCellsFromStorage();
+  if (!myCellsList || !myCellsList.length) {
+    toast('No cells saved. Click ⚙ Manage first.', 'info');
+    return;
+  }
+
+  const listEl = document.getElementById('view-all-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="color:var(--text-muted);font-size:var(--fs-sm);">Loading all cells…</div>';
+  _viewAllDoneState = {};
+
+  try {
+    // Fetch latest schedule metadata for all cells in parallel
+    const schedResults = await Promise.all(
+      myCellsList.map(c =>
+        sb(`sts_schedules?campus=eq.${currentUser.campus}&cell_name=eq.${encodeURIComponent(c)}&order=created_at.desc&limit=1&select=id,cell_name,created_by,created_at,order_done_state`)
+          .catch(() => [])
+      )
+    );
+
+    const cellScheds = myCellsList.map((c, i) => ({
+      cellName: c,
+      sched: schedResults[i]?.[0] || null
+    }));
+
+    // Load saved done states into local cache
+    cellScheds.forEach(({ sched }) => {
+      if (!sched) return;
+      try {
+        _viewAllDoneState[sched.id] = sched.order_done_state ? JSON.parse(sched.order_done_state) : {};
+      } catch { _viewAllDoneState[sched.id] = {}; }
+    });
+
+    // Batch-fetch all schedule items (including order_number) for cells that have schedules
+    const validIds = cellScheds.filter(x => x.sched).map(x => x.sched.id);
+    let itemsBySched = {};
+    let matEventsByCellName = {};
+    if (validIds.length) {
+      const [allItems, matEvents] = await Promise.all([
+        sb(`sts_schedule_items?schedule_id=in.(${validIds.join(',')})&select=schedule_id,sku,quantity,takt_minutes,due_date,must_ship,order_type,order_number,sort_order&order=sort_order.asc`).catch(() => []),
+        sb(`sts_material_events?event_type=eq.delivered&select=order_number,actor,cell_name`).catch(() => [])
+      ]);
+      (allItems || []).forEach(it => {
+        if (!itemsBySched[it.schedule_id]) itemsBySched[it.schedule_id] = [];
+        itemsBySched[it.schedule_id].push(it);
+      });
+      // Build actor->role map for material labels
+      const actorRoleMap = {};
+      (allEmployees || []).forEach(e => { actorRoleMap[e.name] = e.role; });
+      (matEvents || []).forEach(ev => {
+        if (!matEventsByCellName[ev.cell_name]) matEventsByCellName[ev.cell_name] = {};
+        if (!matEventsByCellName[ev.cell_name][ev.order_number]) matEventsByCellName[ev.cell_name][ev.order_number] = {};
+        const role = actorRoleMap[ev.actor] || ev.actor;
+        const cfg = MAT_HANDLER_CONFIG[role];
+        const label = cfg ? cfg.col : 'Parts';
+        matEventsByCellName[ev.cell_name][ev.order_number][label] = true;
+      });
+    }
+
+    const html = cellScheds.map(({ cellName: cn, sched }) => {
+      const isDown = typeof machineDownCells !== 'undefined' && machineDownCells.has(cn);
+      const downBadge = isDown
+        ? `<span style="color:var(--red);font-size:11px;font-weight:700;margin-left:8px;">🔴 Machine Down</span>`
+        : '';
+
+      if (!sched) {
+        return `<div style="border:1px solid var(--border2);border-radius:var(--radius-sm);padding:14px 18px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <span style="font-family:var(--mono);font-size:15px;font-weight:700;">${cn}</span>${downBadge}
+            <span style="color:var(--text-dim);font-size:var(--fs-sm);">No schedule saved</span>
+          </div>
+        </div>`;
+      }
+
+      const doneState = _viewAllDoneState[sched.id] || {};
+      const items = (itemsBySched[sched.id] || []).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const totalMins  = items.reduce((s, it) => s + parseFloat(it.takt_minutes || 0), 0);
+      const totalHrs   = (totalMins / 60).toFixed(1);
+      const totalUnits = items.reduce((s, it) => s + parseInt(it.quantity || 0, 10), 0);
+      const updatedStr = new Date(sched.created_at).toLocaleString('en-US', {
+        timeZone: 'America/New_York', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit'
+      });
+
+      const itemRows = items.map(it => {
+        const isDone   = it.order_number ? !!doneState[it.order_number] : false;
+        const isWarranty    = it.order_type === 'warranty';
+        const isReplacement = it.order_type === 'replacement';
+        const badges = [
+          it.must_ship    ? `<span style="background:var(--red-dim);color:var(--red);border:1px solid var(--red);font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;">Must Ship</span>` : '',
+          isWarranty      ? `<span style="background:var(--yellow-dim,#332b00);color:var(--yellow);border:1px solid var(--yellow);font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;">Warranty</span>` : '',
+          isReplacement   ? `<span style="background:var(--surface2);color:var(--text-muted);border:1px solid var(--border2);font-size:10px;padding:1px 6px;border-radius:20px;">Repl.</span>` : '',
+        ].filter(Boolean).join(' ');
+        const doneBtn = it.order_number
+          ? `<button class="order-act-btn${isDone ? ' done' : ''}" onclick="_viewAllToggleDone('${sched.id}','${it.order_number}',this)">${isDone ? 'Undo' : 'Done'}</button>`
+          : '';
+        const dueCls = it.due_date ? 'color:var(--text-muted)' : 'color:var(--text-dim)';
+        // Material handler completion badges
+        const matDone = (matEventsByCellName[cn] || {})[it.order_number] || {};
+        const matBadges = Object.keys(matDone).map(lbl =>
+          `<span style="background:var(--green-dim,#052010);color:var(--green);border:1px solid var(--green);font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;">✓ ${lbl} Ready</span>`
+        ).join(' ');
+        return `<div class="va-order-row${isDone ? ' va-order-done' : ''}" style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 12px;border-bottom:1px solid var(--border2);">
+          <span style="font-family:var(--mono);font-size:12px;font-weight:600;min-width:120px;">${it.sku}</span>
+          <span style="font-size:12px;color:var(--text-muted);min-width:40px;">×${it.quantity}</span>
+          <span style="font-size:12px;color:var(--text-muted);min-width:40px;">${it.takt_minutes ? (it.takt_minutes/60).toFixed(1)+'h' : '—'}</span>
+          <span style="font-size:12px;${dueCls};min-width:80px;">${it.due_date || '—'}</span>
+          ${it.order_number ? `<span style="font-family:var(--mono);font-size:11px;color:var(--accent);flex:1;">${it.order_number}</span>` : '<span style="flex:1;"></span>'}
+          <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">${badges}${matBadges}${doneBtn}</div>
+        </div>`;
+      }).join('');
+
+      const doneCount  = items.filter(it => it.order_number && !!doneState[it.order_number]).length;
+      const orderCount = items.filter(it => it.order_number).length;
+      const progressTxt = orderCount ? `${doneCount}/${orderCount} done` : '';
+
+      return `<div style="border:1px solid var(--border2);border-radius:var(--radius-sm);overflow:hidden;margin-bottom:2px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 18px;background:var(--surface2);border-bottom:1px solid var(--border2);">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span style="font-family:var(--mono);font-size:14px;font-weight:700;">${cn}</span>${downBadge}
+            <span style="font-size:11px;color:var(--text-muted);">${items.length} SKU${items.length !== 1 ? 's' : ''} &middot; ${totalUnits} units &middot; ${totalHrs}h TAKT</span>
+            ${progressTxt ? `<span style="font-size:11px;font-weight:700;color:var(--green);">${progressTxt}</span>` : ''}
+            <span style="font-size:11px;color:var(--text-dim);">by ${sched.created_by} · ${updatedStr}</span>
+          </div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-xs" onclick="printSingleCell('${cn}')">🖨 Print</button>
+            <button class="btn btn-ghost btn-xs" onclick="_vaNewSchedule('${cn}')">+ New Schedule</button>
+          </div>
+        </div>
+        ${items.length
+          ? `<div>
+              <div style="display:flex;gap:6px;padding:5px 12px;border-bottom:1px solid var(--border2);background:var(--surface2);">
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-dim);min-width:120px;">SKU</span>
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-dim);min-width:40px;">Qty</span>
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-dim);min-width:40px;">TAKT</span>
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-dim);min-width:80px;">Due</span>
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-dim);flex:1;">Order #</span>
+                <span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-dim);">Status</span>
+              </div>
+              ${itemRows}
+            </div>`
+          : `<div style="padding:14px 18px;color:var(--text-dim);font-size:var(--fs-sm);">Schedule is empty.</div>`
+        }
+      </div>`;
+    }).join('');
+
+    listEl.innerHTML = html || '<div style="color:var(--text-dim);font-size:var(--fs-sm);">No schedules found.</div>';
+  } catch(e) {
+    listEl.innerHTML = `<div style="color:var(--red);padding:20px 0;">Failed to load: ${e.message}</div>`;
+  }
+}
+
+
+// ── View All — start a new schedule for a cell ──
+function _vaNewSchedule(cn) {
+  // Close view all panel, clear current schedule state, set cell name, show paste panel
+  const panel = document.getElementById('view-all-panel');
+  if (panel && panel.style.display !== 'none') toggleViewAllCells();
+  scheduleItems = []; cellName = cn; savedScheduleId = null; lastSavedState = null;
+  variantSources = []; orderDoneState = {};
+  const pp = document.getElementById('paste-panel');
+  if (pp) pp.style.display = 'block';
+  const sp = document.getElementById('saved-panel');
+  if (sp) sp.style.display = 'none';
+  const sm = document.getElementById('sched-meta');
+  if (sm) sm.style.display = 'none';
+  const li = document.getElementById('schedule-list');
+  if (li) li.innerHTML = '';
+  const es = document.getElementById('empty-state');
+  if (es) es.style.display = 'block';
+  // Highlight this cell in the strip
+  document.querySelectorAll('.mycell-strip-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.trim().startsWith(cn));
+  });
+  window._activeMyCellName = cn;
+  toast(`Starting new schedule for ${cn}`, 'ok');
 }
 
 // ── Machine Down — shared helpers ──
@@ -968,6 +1211,9 @@ function renderMyCellsStripCards() {
   const wrap = document.getElementById('mycells-strip-cards');
   if (!wrap) return;
   _loadMyCellsFromStorage();
+  // Show/hide View All button based on cell count
+  const viewAllBtn = document.getElementById('btn-view-all-cells');
+  if (viewAllBtn) viewAllBtn.style.display = myCellsList.length > 1 ? '' : 'none';
   if (!myCellsList.length) {
     wrap.innerHTML = '<span style="color:var(--text-dim);font-size:12px;">No cells selected — click ⚙ Manage to add yours.</span>';
     return;
@@ -1102,6 +1348,121 @@ function _populateEditMatSelects(qty) {
     sel.innerHTML = `<option value="have_all">Have All</option>`;
     for (let n = 1; n <= Math.min(qty || 50, 100); n++) sel.innerHTML += `<option value="need_${n}">Need ${n}</option>`;
   });
+}
+
+
+// ── Replacement Done Banner (scrolling notification for supervisors/managers) ──
+let _replacementPollTimer = null;
+let _lastInspectionSnapshot = '';
+
+function showReplacementBanner(sku, orderNum, cell, typeLabel) {
+  const isSup = SUP_ROLES.includes(currentUser.role);
+  if (!isSup) return;
+  const el = document.getElementById('replacement-banner');
+  if (!el) return;
+  const msg = `🔴 ${typeLabel} DONE — ${sku} · Order: ${orderNum} · Cell: ${cell} · Marked by: ${currentUser.name}`;
+  el.innerHTML = `<span class="repl-banner-inner">${msg} &nbsp;&nbsp;&nbsp; ${msg} &nbsp;&nbsp;&nbsp; ${msg}</span>`;
+  el.style.display = 'flex';
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, 18000);
+}
+
+function startReplacementPoll() {
+  if (_replacementPollTimer) return; // already running
+  _replacementPollTimer = setInterval(async () => {
+    const isSup = SUP_ROLES.includes(currentUser.role) || currentUser.role === 'area_view';
+    if (!isSup) return;
+    try {
+      const rows = await sb(`sts_inspection_queue?campus=eq.${currentUser.campus}&status=eq.pending&order=created_at.desc&limit=10&select=id,sku,order_number,cell_name,order_type,marked_by,created_at`);
+      const snap = JSON.stringify((rows||[]).map(r=>r.id).sort());
+      if (_lastInspectionSnapshot && snap !== _lastInspectionSnapshot) {
+        // New items appeared — show banner for each new one
+        const prev = new Set(JSON.parse(_lastInspectionSnapshot));
+        (rows||[]).forEach(r => {
+          if (!prev.has(r.id)) {
+            const label = r.order_type === 'replacement' ? 'Full Replacement' : 'Warranty';
+            const el = document.getElementById('replacement-banner');
+            if (!el) return;
+            const msg = `🔴 ${label} DONE — ${r.sku} · Order: ${r.order_number||'?'} · Cell: ${r.cell_name} · By: ${r.marked_by}`;
+            el.innerHTML = `<span class="repl-banner-inner">${msg} &nbsp;&nbsp;&nbsp; ${msg} &nbsp;&nbsp;&nbsp; ${msg}</span>`;
+            el.style.display = 'flex';
+            clearTimeout(el._hideTimer);
+            el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, 18000);
+          }
+        });
+      }
+      _lastInspectionSnapshot = snap;
+    } catch(e) { /* silent */ }
+  }, 20000); // poll every 20s
+}
+
+// ── View All print ──
+function printAllCells() {
+  const listEl = document.getElementById('view-all-list');
+  if (!listEl || !listEl.innerHTML.trim() || listEl.innerHTML.includes('Loading')) {
+    toast('Load all cells first', 'info'); return;
+  }
+  const win = window.open('', '_blank', 'width=1000,height=700');
+  const rows = document.querySelectorAll('#view-all-list .va-order-row');
+  let tableRows = '';
+  let currentCell = '';
+  document.querySelectorAll('#view-all-list > div').forEach(cellBlock => {
+    const cellLabel = cellBlock.querySelector('span[style*="font-weight:700"]')?.textContent?.trim() || '';
+    if (!cellLabel) return;
+    tableRows += `<tr style="background:#eee;"><td colspan="5" style="font-weight:700;padding:6px 8px;">${cellLabel}</td></tr>`;
+    cellBlock.querySelectorAll('.va-order-row').forEach(row => {
+      const cells = row.querySelectorAll('span');
+      const sku  = cells[0]?.textContent?.trim() || '';
+      const qty  = cells[1]?.textContent?.trim() || '';
+      const takt = cells[2]?.textContent?.trim() || '';
+      const due  = cells[3]?.textContent?.trim() || '';
+      const ord  = cells[4]?.textContent?.trim() || '';
+      const done = row.classList.contains('va-order-done') ? '✓ Done' : '';
+      tableRows += `<tr><td style="font-family:monospace;font-weight:600;">${sku}</td><td>${qty}</td><td>${takt}</td><td>${due}</td><td style="font-family:monospace;font-size:9pt;">${ord}</td><td style="color:green;font-weight:700;">${done}</td></tr>`;
+    });
+  });
+  const html = `<!DOCTYPE html><html><head><title>All Cells Schedule</title>
+  <style>body{font-family:Arial,sans-serif;font-size:10pt;padding:16px;}
+  table{width:100%;border-collapse:collapse;}th{font-size:8pt;text-transform:uppercase;padding:5px 8px;text-align:left;border-bottom:2px solid #333;background:#f5f5f5;}
+  td{padding:4px 8px;border-bottom:1px solid #eee;}
+  @media print{@page{margin:8mm;size:landscape;}}</style></head>
+  <body><h2>All Cells Schedule — ${new Date().toLocaleString()}</h2>
+  <table><thead><tr><th>SKU</th><th>Qty</th><th>TAKT</th><th>Due</th><th>Order #</th><th>Status</th></tr></thead>
+  <tbody>${tableRows}</tbody></table></body></html>`;
+  win.document.open(); win.document.write(html); win.document.close();
+  win.focus(); setTimeout(() => win.print(), 400);
+}
+
+function printSingleCell(cn) {
+  // Find that cell's block in the view-all-list
+  let found = null;
+  document.querySelectorAll('#view-all-list > div').forEach(cellBlock => {
+    const lbl = cellBlock.querySelector('span[style*="font-weight:700"]')?.textContent?.trim() || '';
+    if (lbl === cn) found = cellBlock;
+  });
+  if (!found) { toast('Cell not visible — open View All first', 'info'); return; }
+  const win = window.open('', '_blank', 'width=800,height=600');
+  let tableRows = '';
+  found.querySelectorAll('.va-order-row').forEach(row => {
+    const cells = row.querySelectorAll('span');
+    const sku  = cells[0]?.textContent?.trim() || '';
+    const qty  = cells[1]?.textContent?.trim() || '';
+    const takt = cells[2]?.textContent?.trim() || '';
+    const due  = cells[3]?.textContent?.trim() || '';
+    const ord  = cells[4]?.textContent?.trim() || '';
+    const done = row.classList.contains('va-order-done') ? '✓ Done' : '';
+    tableRows += `<tr><td style="font-family:monospace;font-weight:600;">${sku}</td><td>${qty}</td><td>${takt}</td><td>${due}</td><td style="font-family:monospace;font-size:9pt;">${ord}</td><td style="color:green;font-weight:700;">${done}</td></tr>`;
+  });
+  const html = `<!DOCTYPE html><html><head><title>${cn} Schedule</title>
+  <style>body{font-family:Arial,sans-serif;font-size:10pt;padding:16px;}
+  table{width:100%;border-collapse:collapse;}th{font-size:8pt;text-transform:uppercase;padding:5px 8px;text-align:left;border-bottom:2px solid #333;background:#f5f5f5;}
+  td{padding:4px 8px;border-bottom:1px solid #eee;}
+  @media print{@page{margin:8mm;}}</style></head>
+  <body><h2>${cn} — Schedule</h2><p style="color:#555;font-size:9pt;">${new Date().toLocaleString()}</p>
+  <table><thead><tr><th>SKU</th><th>Qty</th><th>TAKT</th><th>Due</th><th>Order #</th><th>Status</th></tr></thead>
+  <tbody>${tableRows}</tbody></table></body></html>`;
+  win.document.open(); win.document.write(html); win.document.close();
+  win.focus(); setTimeout(() => win.print(), 400);
 }
 
 // ── Init ──

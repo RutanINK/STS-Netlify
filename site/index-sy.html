@@ -56,9 +56,11 @@
       <option value="admin">Admin</option>
       <option value="manager">Manager</option>
       <option value="supervisor">Supervisor</option>
+      <option value="area_view">Area View</option>
       <option value="area_leader">Area Leader</option>
       <option value="box_handler">Box Handler</option>
       <option value="lumber_handler">Lumber Handler</option>
+      <option value="material_handling_lead">Mat. Handling Lead</option>
       <option value="hardware_handler">Hardware Handler</option>
       <option value="bending_handler">Bending Handler</option>
       <option value="slings_handler">Slings Handler</option>
@@ -68,12 +70,13 @@
       <option value="area_leader">Area Leader</option>
       <option value="box_handler">Box Handler</option>
       <option value="lumber_handler">Lumber Handler</option>
+      <option value="material_handling_lead">Mat. Handling Lead</option>
       <option value="hardware_handler">Hardware Handler</option>
       <option value="bending_handler">Bending Handler</option>
       <option value="slings_handler">Slings Handler</option>
     </select>
     <button class="btn btn-ghost btn-sm" onclick="openFeedbackModal()" style="font-size:12px;">💬 Feedback</button>
-    <button class="btn btn-ghost btn-sm" onclick="openNeedHelpModal()" style="font-size:12px;border-color:var(--yellow);color:var(--yellow);">🙋 Need Help</button>
+    <button class="btn btn-ghost btn-sm" onclick="openNeedHelpModal()" style="font-size:12px;border-color:var(--yellow);color:var(--yellow);font-weight:700;letter-spacing:.03em;">Need Help</button>
     <button class="btn btn-ghost btn-sm" id="btn-theme-toggle" onclick="toggleTheme()" style="font-size:12px;" title="Toggle light/dark mode">☀ Light</button>
     <button class="btn-logout" onclick="logout()">Log out</button>
   </div>
@@ -81,6 +84,11 @@
 
 <!-- LIVE UPDATE BANNER -->
 <div id="live-banner" style="display:none;"></div>
+
+<!-- REPLACEMENT DONE BANNER -->
+<div id="replacement-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:var(--red);color:#fff;font-family:var(--mono);font-size:13px;font-weight:700;padding:8px 0;overflow:hidden;white-space:nowrap;cursor:pointer;" onclick="this.style.display='none'">
+  <span class="repl-banner-inner"></span>
+</div>
 
 <!-- TOTALS BAR -->
 <div id="totals-bar">
@@ -99,7 +107,21 @@
   <div id="mycells-strip" style="padding:10px 26px 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px;border-bottom:1px solid var(--border2);padding-bottom:10px;">
     <span style="font-size:12px;font-weight:700;color:var(--text-muted);white-space:nowrap;">My Cells:</span>
     <div id="mycells-strip-cards" style="display:flex;flex-wrap:wrap;gap:6px;flex:1;"></div>
+    <button class="btn btn-ghost btn-xs" id="btn-view-all-cells" onclick="toggleViewAllCells()" style="display:none;white-space:nowrap;">View All</button>
     <button class="btn btn-ghost btn-xs" onclick="openManageCells()" style="white-space:nowrap;">⚙ Manage</button>
+  </div>
+  <!-- View All Cells panel -->
+  <div id="view-all-panel" style="display:none;border-bottom:1px solid var(--border2);">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 26px 6px;">
+      <span style="font-size:12px;font-weight:700;color:var(--text-muted);">All My Cells — Current Schedules</span>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-ghost btn-xs" onclick="printAllCells()">🖨 Print All</button>
+        <button class="btn btn-ghost btn-xs" onclick="toggleViewAllCells()">✕ Close</button>
+      </div>
+    </div>
+    <div id="view-all-list" style="padding:0 26px 16px;display:flex;flex-direction:column;gap:10px;">
+      <div style="color:var(--text-dim);font-size:var(--fs-sm);">Loading…</div>
+    </div>
   </div>
   <div class="paste-panel" id="paste-panel">
     <div class="panel-title">Paste Raw Sabertooth Data</div>
@@ -152,7 +174,10 @@
 <div id="page-mycells" class="page" style="display:none;">
   <div class="mycells-header">
     <div class="mycells-title">My Cells</div>
-    <button class="btn btn-ghost btn-sm" onclick="openManageCells()">Manage My Cells</button>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-ghost btn-sm" id="btn-view-all-cells" onclick="loadAllMyCells()" style="display:none;">View All</button>
+      <button class="btn btn-ghost btn-sm" onclick="openManageCells()">Manage My Cells</button>
+    </div>
   </div>
   <div id="mycells-cards" style="padding:0 26px;display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;"></div>
   <div id="mycells-actions" style="padding:0 26px 10px;display:none;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -234,7 +259,7 @@
 <!-- ══ NEED HELP MODAL ══ -->
 <div class="modal-bd" id="modal-need-help">
   <div class="modal" style="border-color:var(--yellow);max-width:460px;">
-    <div class="modal-title" style="color:var(--yellow);">🙋 App Support Request</div>
+    <div class="modal-title" style="color:var(--yellow);border-left:4px solid var(--yellow);padding-left:12px;letter-spacing:.03em;">APP SUPPORT REQUEST</div>
     <div class="modal-sub">Can't access something or having trouble making the app work? Let us know.</div>
     <div class="field-group">
       <label class="field-label">What's the issue? <span style="color:var(--red);">*</span></label>
@@ -265,7 +290,7 @@
     <div class="field-group"><label class="field-label">Requested by</label><input class="input" id="help-reporter" readonly></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-need-help')">Cancel</button>
-      <button class="btn btn-warning" id="btn-help-send" onclick="sendNeedHelp()" disabled>🙋 Send Help Request</button>
+      <button class="btn btn-warning" id="btn-help-send" onclick="sendNeedHelp()" disabled>Send Help Request</button>
     </div>
   </div>
 </div>
@@ -554,6 +579,26 @@
   </div>
 </div>
 
+<!-- ══ BLOCK ORDER MODAL ══ -->
+<div class="modal-bd" id="modal-block-order">
+  <div class="modal" style="border-color:var(--red);max-width:440px;">
+    <div class="modal-title" style="color:var(--red);">🚫 Block Order</div>
+    <div class="modal-sub">This order will be hidden from scheduling and cannot be saved until removed.</div>
+    <div style="background:var(--red-dim);border:1px solid var(--red);border-radius:var(--radius);padding:14px 18px;margin:12px 0;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:20px;">🔒</span>
+      <div>
+        <div style="font-size:var(--fs-xs);color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:2px;">Order Number</div>
+        <div id="block-order-num-display" style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--red);">—</div>
+      </div>
+    </div>
+    <div style="font-size:var(--fs-sm);color:var(--text-muted);margin-bottom:4px;">Only supervisors and managers can unblock orders via the Order Blacklist page.</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-block-order');_pendingBlockOrderNum=null;">Cancel</button>
+      <button class="btn btn-primary" style="background:var(--red);border-color:var(--red);" onclick="_confirmBlacklistOrder()">🚫 Block Order</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bd" id="modal-handoff" style="z-index:600;">
   <div class="modal" style="max-width:700px;width:100%;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
@@ -596,6 +641,7 @@
         <option value="manager">Manager</option><option value="admin">Admin</option>
         <optgroup label="Material Handlers">
           <option value="box_handler">Box Handler</option><option value="lumber_handler">Lumber Handler</option>
+          <option value="material_handling_lead">Material Handling Lead</option>
           <option value="hardware_handler">Hardware Handler</option><option value="bending_handler">Bending Handler</option>
           <option value="slings_handler">Slings Handler</option>
         </optgroup>
@@ -684,6 +730,18 @@
 
 
 <div id="toast"></div>
+
+<!-- ══ ANOTHER SCHEDULE MODAL ══ -->
+<div class="modal-bd" id="modal-another-sched">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-title">Schedule Saved ✓</div>
+    <div class="modal-sub">Do you need to make another schedule?</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-another-sched')">No, I'm done</button>
+      <button class="btn btn-primary" onclick="closeModal('modal-another-sched');document.getElementById('paste-panel').style.display='block';scheduleItems=[];cellName='';savedScheduleId=null;lastSavedState=null;variantSources=[];orderDoneState={};render();toast('Paste new schedule data','info')">Yes — New Schedule</button>
+    </div>
+  </div>
+</div>
 
 <script>window.CAMPUS_OVERRIDE = "SY";</script>
 <script src="config.js"></script>

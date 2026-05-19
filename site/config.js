@@ -189,8 +189,9 @@ function getBuildingsForCampus(campus) {
 // Role groups
 const DASH_ROLES = ['supervisor','manager','admin'];
 const USER_ROLES = ['manager','admin'];
-const MAT_ROLES  = ['box_handler','lumber_handler','hardware_handler','bending_handler','slings_handler'];
+const MAT_ROLES  = ['box_handler','lumber_handler','hardware_handler','bending_handler','slings_handler','material_handling_lead'];
 const SUP_ROLES  = ['supervisor','manager','admin'];
+const AREA_VIEW_ROLES = ['area_view'];
 
 // Returns the building key for a given cell name string
 function cellBuilding(cellNameStr) {

@@ -207,7 +207,7 @@ function renderShortageTab() {
     ? esc
     : v => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 
-  const isSup  = SUP_ROLES.includes(currentUser?.role);
+  const isSup  = canMarkShortages();
   const campus = tabCfg.campus;
   const dbMap  = {};
   (shortageCache[tabCfg.key] || []).forEach(r => { dbMap[String(r.sku || '').toUpperCase()] = r; });
@@ -330,8 +330,12 @@ function clearShortageSearch() {
 // ══════════════════════════════════════
 // STATUS UPDATE
 // ══════════════════════════════════════
+function canMarkShortages() {
+  return SUP_ROLES.includes(currentUser?.role) || currentUser?.role === 'material_handling_lead';
+}
+
 async function setShortageStatus(sku, newStatus, category, campus, rowId, btn) {
-  if (!SUP_ROLES.includes(currentUser?.role)) return;
+  if (!canMarkShortages()) return;
   const tr = btn.closest('tr');
   tr.querySelectorAll('.sh-status-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
@@ -371,7 +375,7 @@ async function setShortageStatus(sku, newStatus, category, campus, rowId, btn) {
 }
 
 async function saveShortageNotes(sku, category, campus, rowId, notes) {
-  if (!SUP_ROLES.includes(currentUser?.role) || !rowId || rowId === 'null') return;
+  if (!canMarkShortages() || !rowId || rowId === 'null') return;
   try {
     await sb('sts_shortages?id=eq.' + rowId, 'PATCH', { notes, updated_at: new Date().toISOString() }, { prefer:'return=minimal' });
     await loadShortages(true);
@@ -381,24 +385,36 @@ async function saveShortageNotes(sku, category, campus, rowId, notes) {
 // ══════════════════════════════════════
 // APPROVE OVERRIDE (used from schedule cards)
 // ══════════════════════════════════════
-function openShortageApprove(finishedSku, notes = '', materialSku = '', componentSku = '', status = '') {
+function openShortageApprove(finishedSku, notes = '', materialSku = '', componentSku = '', status = '', orderNums = []) {
   const affectedSku = String(finishedSku || '').trim().toUpperCase();
   const material    = String(materialSku || componentSku || finishedSku || '').trim().toUpperCase();
   const component   = String(componentSku || '').trim().toUpperCase();
   const stat        = String(status || '').trim() || (isSKUGreyList(material) ? 'low_quantity' : isSKUBlocked(material) ? 'out_of_stock' : 'low_quantity');
+  const orders      = Array.isArray(orderNums) ? orderNums.filter(Boolean) : [];
 
   pendingShortageApproval = material || affectedSku;
-  pendingShortageApprovalContext = { finishedSku: affectedSku, materialSku: material, componentSku: component, status: stat, notes };
+  pendingShortageApprovalContext = { finishedSku: affectedSku, materialSku: material, componentSku: component, status: stat, notes, orderNums: orders };
 
   const statusLabel = stat === 'out_of_stock' ? 'OUT OF STOCK' : stat === 'low_quantity' ? 'LOW QUANTITY' : stat.toUpperCase();
-  const parts = [];
-  if (affectedSku && affectedSku !== material) parts.push(`${affectedSku} is affected by material/profile ${material}.`);
-  else parts.push(`${material || affectedSku} is ${statusLabel}.`);
-  if (component && component !== material) parts.push(`BOM component: ${component}.`);
-  parts.push(`Status: ${statusLabel}.`);
-  if (notes) parts.push(`Notes: ${notes}`);
 
-  document.getElementById('sh-approve-sub').textContent = parts.join(' ');
+  // Build modal subtitle
+  const subEl = document.getElementById('sh-approve-sub');
+  let subHtml = '';
+  if (affectedSku && affectedSku !== material) subHtml += `<strong>${affectedSku}</strong> uses low-quantity material <strong>${material}</strong>.`;
+  else subHtml += `<strong>${material || affectedSku}</strong> is <strong style="color:var(--yellow);">${statusLabel}</strong>.`;
+  if (component && component !== material) subHtml += ` BOM component: ${component}.`;
+  if (notes) subHtml += `<br><span style="color:var(--text-muted);font-size:12px;">${notes}</span>`;
+
+  if (orders.length) {
+    subHtml += `<div style="margin-top:10px;font-size:12px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Orders being approved:</div>`;
+    subHtml += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">` +
+      orders.map(on => `<span style="font-family:var(--mono);font-size:13px;font-weight:700;background:var(--surface2);border:1px solid var(--yellow);border-radius:4px;padding:3px 9px;color:var(--yellow);">${on}</span>`).join('') +
+      `</div>`;
+  } else {
+    subHtml += `<div style="margin-top:8px;font-size:12px;color:var(--text-muted);">No specific order numbers found on this card.</div>`;
+  }
+
+  subEl.innerHTML = subHtml;
   document.getElementById('sh-approve-reason').value = '';
   document.getElementById('modal-sh-approve').classList.add('open');
 }
@@ -407,14 +423,22 @@ function confirmShortageApprove() {
   const reason = document.getElementById('sh-approve-reason').value.trim();
   if (!reason) { toast('Please enter a reason', 'err'); return; }
 
-  const key = pendingShortageApproval;
+  const key    = pendingShortageApproval;
+  const ctx    = pendingShortageApprovalContext;
   if (!key) { toast('No shortage selected for approval', 'err'); return; }
 
-  approvedOverrides[key] = reason;
-  if (pendingShortageApprovalContext?.finishedSku) approvedOverrides[pendingShortageApprovalContext.finishedSku] = reason;
+  // Approve per order number (primary) — this is what the save check uses
+  const orders = ctx?.orderNums || [];
+  if (orders.length) {
+    orders.forEach(on => { approvedOverrides[on] = reason; });
+  } else {
+    // Fallback: approve by SKU if no order numbers (legacy path)
+    approvedOverrides[key] = reason;
+    if (ctx?.finishedSku) approvedOverrides[ctx.finishedSku] = reason;
+  }
 
-  const label = pendingShortageApprovalContext?.materialSku || key;
-  toast('Override approved for ' + label, 'ok');
+  const label = orders.length ? orders.join(', ') : (ctx?.materialSku || key);
+  toast(`Approved: ${label}`, 'ok');
 
   pendingShortageApproval = null;
   pendingShortageApprovalContext = null;
